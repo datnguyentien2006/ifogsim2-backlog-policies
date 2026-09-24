@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+out/
+output/
+*.class
+
+# Eclipse
+.classpath
+.project
+.settings/
+
+# IntelliJ
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Office temp
+~$*.docx
+~$*.pptx
