@@ -1,48 +1,193 @@
-# iFogSim2 (The New Version)
-A Toolkit for Modeling and Simulation of Resource Management Techniques in Internet of Things, Edge and Fog Computing Environments with the following new features:
- * Mobility-support and Migration Management
-   * Supporting real mobility datasets
-   * Implementing different random mobility models 
- * Microservice Orchestration
- * Dynamic Distributed Clustering
- * Any Combinations of Above-mentioned Features
- * Full Compatibility with the Latest Version of the CloudSim (i.e., (https://github.com/Cloudslab/cloudsim/releases)) and [Previous iFogSim Version](https://github.com/Cloudslab/iFogSim1) and Tutorials
+# iFogSim2 Backlog Policies — Mô phỏng & So sánh các chính sách điều phối gửi bù dữ liệu
 
-iFogSim2 currently encompasses several new usecases such as:
- * Audio Translation Scenario
- * Healthcare Scenario
- * Crowd-sensing Scenario
+> **Đồ án môn Mạng máy tính — HK261**
+> Đề tài 2: Mô phỏng và so sánh các chính sách điều phối gửi bù dữ liệu cơ bản trên iFogSim2
 
-# How to run iFogSim2 ?
-* Eclipse IDE:
-  * Create a Java project
-  * Inside the project directory, initialize an empty Git repository with the following command:
-  ```
-  git init
-  ```
-  * Add the Git repository of iFogSim2 as the `origin` remote:
-  ```
-  git remote add origin https://github.com/Cloudslab/iFogSim
-  ```
-  * Pull the contents of the repository to your machine:
-  ```
-  git pull origin main
-  ```
-  * Include the JARs to your project  
-  * Run the example files (e.g. TranslationServiceFog_Clustering.java, CrowdSensing_Microservices_RandomMobility_Clustering.java) to get started
+---
 
-* IntelliJ IDEA:
-  * Clone the iFogSim2 Git repository to desired folder:
-  ```
-  git clone https://github.com/Cloudslab/iFogSim
-  ```
-  * Select "project from existing resources" from the "File" drop-down menu
-  * Verify the Java version
-  * Verify the external libraries in the "JARs" Folder are added to the project
-  * Run the example files (e.g. TranslationServiceFog_Clustering.java, CrowdSensing_Microservices_RandomMobility_Clustering.java) to get started
+## 📖 Giới thiệu
+
+Khi một máy chủ biên mất kết nối rồi tái kết nối, dữ liệu tồn đọng thường được gửi dồn về trung tâm, gây áp lực lên hạ tầng mạng và hệ thống tiếp nhận. Đề tài này xây dựng một khung mô phỏng trên nền **iFogSim2** (chạy trên CloudSim, viết bằng Java) để:
+
+- Mô hình hóa topology gồm **nhiều máy chủ biên** gửi dữ liệu về **một trung tâm tiếp nhận**.
+- Mô phỏng các sự kiện **mất kết nối / tái kết nối** của biên, bao gồm cả kịch bản nhiều biên cùng khôi phục trong thời gian ngắn.
+- Cài đặt **4 chính sách điều phối gửi bù** khác nhau và so sánh chúng trên cùng một bộ kịch bản tải.
+
+---
+
+## 🎯 Mục tiêu
+
+1. Xây dựng khung mô phỏng iFogSim2 hoàn chỉnh, có thể **dùng lại và mở rộng**.
+2. Cài đặt 4 chính sách gửi bù dữ liệu tồn đọng và so sánh công bằng trên cùng bộ kịch bản.
+3. Đo lường định lượng các chỉ số: độ trễ, thông lượng, mức độ công bằng, dữ liệu bị trì hoãn quá lâu, mức sử dụng mạng.
+4. Viết báo cáo phân tích ưu/nhược điểm từng chính sách theo từng miền tải.
+
+---
+
+## 📌 Bốn chính sách gửi bù
+
+| # | Chính sách | Mô tả ngắn |
+|---|-----------|------------|
+| 1 | **FIFO** | Gửi tuần tự theo đúng thứ tự phát sinh — dữ liệu cũ nhất đi trước. |
+| 2 | **Round-Robin** | Chia đều theo vòng — lần lượt gửi một phần của mỗi biên rồi quay vòng. |
+| 3 | **Rate-Limit** | Giới hạn tốc độ gửi ở mức cố định, không đổi bất kể tồn đọng. |
+| 4 | **Priority New Data** | Ưu tiên dữ liệu mới, chỉ dành hạn mức nhỏ cố định cho gửi bù dữ liệu cũ. |
+
+---
+
+## 🛠️ Công nghệ sử dụng
+
+| Thành phần | Công cụ |
+|-----------|---------|
+| Mô phỏng chính | iFogSim2 (trên nền CloudSim) |
+| Ngôn ngữ | Java (JRE 8 hoặc 11 — chốt theo phiên bản tương thích) |
+| Kiểm thử | JUnit 5 (JUnit Jupiter) |
+| IDE | Eclipse / IntelliJ IDEA |
+| Hậu xử lý & vẽ biểu đồ | Python (pandas, numpy, matplotlib) |
+| Quản lý phiên bản | Git |
+| Tài liệu | Markdown |
+
+---
+
+## 📂 Cấu trúc dự án
+
+ifogsim2-backlog-policies/
+│
+├── analysis/                                   # Script Python phân tích
+│   ├── data_cleaning.py
+│   ├── data_validation.py
+│   └── plotting.py
+│
+├── docs/                                       # Tài liệu kỹ thuật
+│   ├── ADDING_NEW_POLICY.md
+│   ├── ARCHITECTURE.md
+│   ├── INTERFACE.md
+│   └── SETUP.md
+│
+├── report/                                     # Báo cáo
+│   └── report.md
+│
+├── results/                                    # Kết quả thí nghiệm (CSV)
+│   └── .gitkeep
+│
+├── src/
+│   └── org/
+│       └── fog/
+│           └── hk261backlog/                   # ⭐ PACKAGE CỦA NHÓM
+│               │
+│               ├── topology/
+│               │   └── TopologyConfig.java            (N1)
+│               │
+│               ├── backlog/
+│               │   └── BacklogQueue.java              (N5)
+│               │
+│               ├── policy/
+│               │   ├── SendingPolicy.java             (N4, N5 — chốt cùng nhau, N1 làm trọng tài)
+│               │   ├── FifoPolicy.java                (N4)
+│               │   ├── RateLimitPolicy.java           (N4)
+│               │   ├── RoundRobinPolicy.java          (N5)
+│               │   ├── PriorityNewDataPolicy.java     (N5)
+│               │   └── MockBacklogGenerator.java      (N5)
+│               │
+│               ├── disruption/
+│               │   ├── DisconnectionModel.java        (N3)
+│               │   ├── ReconnectionScheduler.java     (N3)
+│               │   └── DisconnectEventLog.java        (N3)
+│               │
+│               ├── metrics/
+│               │   ├── MetricsLogger.java             (N6)
+│               │   ├── MetricsSchema.java             (N6)
+│               │   └── DelayedDataMetric.java         (N6)
+│               │
+│               └── experiment/
+│                   ├── ExperimentMatrix.java          (N6)
+│                   └── ExperimentRunner.java          (N6)
+│
+├── test/                                       # ⭐ JUNIT TEST CỦA NHÓM
+│   └── org/
+│       └── fog/
+│           └── hk261backlog/
+│               ├── TopologyConfigTest.java            (N2)
+│               ├── SendingPolicyInterfaceTest.java    (N2)
+│               ├── FifoPolicyTest.java                (N2)
+│               ├── RateLimitPolicyTest.java            (N2)
+│               ├── RoundRobinPolicyTest.java          (N2)
+│               ├── PriorityNewDataPolicyTest.java     (N2)
+│               ├── DisconnectionModelTest.java        (N2)
+│               ├── ReconnectionSchedulerTest.java     (N2)
+│               ├── BacklogQueueTest.java              (N2)
+│               └── IntegrationTest.java               (N2)
+│
+├── jars/                                       # Thư viện phụ thuộc
+│   ├── commons-math3-3.5/
+│   │   └── commons-math3-3.5.jar
+│   ├── commons-io-2.17.0.jar
+│   ├── commons-lang3-3.17.0.jar
+│   ├── commons-net-3.11.1.jar
+│   ├── easymock-5.3.0.jar
+│   ├── geoip2-4.2.0.jar
+│   ├── guava-18.0.jar
+│   ├── json-simple-1.1.1.jar
+│   ├── junit-jupiter-engine-5.11.3.jar
+│   ├── opencsv-5.9.jar
+│   └── uncommons-maths-1.2.3.jar
+│
+├── slides/                                     # Slide demo (chưa xác nhận — hỏi giảng viên có yêu cầu bảo vệ/thuyết trình không)
+│   └── slides.pptx
+│
+├── .gitignore
+├── LICENSE.txt
+└── README.md
 
 
-# References
- * Redowan Mahmud, Samodha Pallewatta, Mohammad Goudarzi, and Rajkumar Buyya, <A href="https://arxiv.org/abs/2109.05636">iFogSim2: An Extended iFogSim Simulator for Mobility, Clustering, and Microservice Management in Edge and Fog Computing Environments</A>, Journal of Systems and Software (JSS), Volume 190, Pages: 1-17, ISSN:0164-1212, Elsevier Press, Amsterdam, The Netherlands, August 2022.
- * Harshit Gupta, Amir Vahid Dastjerdi , Soumya K. Ghosh, and Rajkumar Buyya, <A href="http://www.buyya.com/papers/iFogSim.pdf">iFogSim: A Toolkit for Modeling and Simulation of Resource Management Techniques in Internet of Things, Edge and Fog Computing Environments</A>, Software: Practice and Experience (SPE), Volume 47, Issue 9, Pages: 1275-1296, ISSN: 0038-0644, Wiley Press, New York, USA, September 2017.
- * Redowan Mahmud and Rajkumar Buyya, <A href="http://www.buyya.com/papers/iFogSim-Tut.pdf">Modelling and Simulation of Fog and Edge Computing Environments using iFogSim Toolkit</A>, Fog and Edge Computing: Principles and Paradigms, R. Buyya and S. Srirama (eds), 433-466pp, ISBN: 978-111-95-2498-4, Wiley Press, New York, USA, January 2019.
+
+---
+
+## 👥 Phân công nhóm
+
+| Thành viên | Vai trò | Phụ trách chính |
+|-----------|--------|-----------------|
+| **Người 1** | Topology & Integration Lead + Report Synthesizer | `TopologyConfig`, `BacklogTopologyTest`, `ExperimentConfig`, tích hợp luồng dữ liệu thật, merge báo cáo, Chương 1 + 4.4 + 6 |
+| **Người 2** | QA & Cơ sở lý thuyết | Toàn bộ test suite, coverage report, `testing-reliability.md`, `theory-background.md` |
+| **Người 3** | Module gián đoạn / tái kết nối | `DisconnectionModel`, `ReconnectionScheduler`, `DisconnectEventLog`, `disruption-model.md` |
+| **Người 4** | Chính sách FIFO & Rate-limit | `FifoPolicy`, `RateLimitPolicy`, `policy-fifo-ratelimit.md` |
+| **Người 5** | Chính sách Round-robin & Priority + Hàng đợi | `BacklogQueue`, `RoundRobinPolicy`, `PriorityNewDataPolicy`, `MockBacklogGenerator`, `policy-roundrobin-priority.md` |
+| **Người 6** | Đo lường & Thí nghiệm | `MetricsLogger`, `MetricsSchema`, `DelayedDataMetric`, `ExperimentMatrix`, `ExperimentRunner`, `plotting.py`, CSV + biểu đồ |
+
+---
+
+## ⏱️ Lộ trình 6 giai đoạn (Tuần 39 → 50)
+
+| Giai đoạn | Tuần | Nội dung chính |
+|-----------|------|----------------|
+| **GĐ1 — SETUP + INT** | 39 | Dựng môi trường, công bố skeleton `TopologyConfig`, `BacklogTopologyTest`, `SETUP.md` |
+| **GĐ2 — CODE CHÍNH** | 40–42 | Chốt interface `SendingPolicy`, code 4 policies + module gián đoạn + topology; N1 nối luồng dữ liệu thật (T42) |
+| **GĐ3 — TEST + INTEGRATION** | 43–44 | Test suite đầy đủ + `IntegrationTest` + coverage report |
+| **GĐ4 — CHẠY THÍ NGHIỆM** | 45–46 | N6 code Metrics + Experiment, chạy ma trận, xuất CSV + biểu đồ |
+| **GĐ5 — VIẾT BÁO CÁO** | 46–48 | 5 người viết draft báo cáo phần mình; N1 merge lần 1 |
+| **GĐ6 — DEMO + NỘP** | 49–50 | Rà soát chung, export `final_report.docx`, demo |
+
+---
+
+## 🚀 Cài đặt & Chạy
+
+### Yêu cầu môi trường
+
+- **Java:** JRE/JDK 8 hoặc 11 (phiên bản chính xác xem `docs/SETUP.md`)
+- **Python:** 3.8+ với `pandas`, `numpy`, `matplotlib`
+- **IDE:** Eclipse hoặc IntelliJ IDEA
+- **Git**
+
+### Các bước cài đặt
+
+```bash
+# 1. Clone repository
+git clone <repo-url>
+cd ifogsim2-backlog-policies
+
+# 2. Mở project trong Eclipse/IntelliJ
+#    - Đảm bảo .classpath dùng JRE container theo tên (không trỏ cứng JDK cá nhân)
+#    - Thêm các thư viện trong jars/ vào Build Path
+
+# 3. Cài đặt thư viện Python
+pip install pandas numpy matplotlib
