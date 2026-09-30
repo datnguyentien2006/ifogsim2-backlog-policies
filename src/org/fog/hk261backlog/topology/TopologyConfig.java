@@ -1,5 +1,11 @@
 package org.fog.hk261backlog.topology;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
+
 /**
  * TopologyConfig — Cấu hình topology cho mô phỏng iFogSim2.
  *
@@ -9,9 +15,13 @@ package org.fog.hk261backlog.topology;
  *   - Được BacklogTopologyTest và ExperimentConfig sử dụng.
  *
  * Người 3, 4, 5 sẽ dựa vào các getter ở đây để biết topology có bao nhiêu biên,
- * tài nguyên ra sao. Vì vậy tuần 39 chỉ cần SKELETON đủ rõ chữ ký hàm.
+ * tài nguyên ra sao.
  *
- * TODO (tuần 40-41): hoàn thiện validate(), thêm builder, hỗ trợ đọc từ file.
+ * Hoàn thiện tuần 40-41:
+ *   - validate() kiểm tra đầy đủ mọi tham số (không chỉ phần lõi).
+ *   - Builder fluent để tạo config gọn hơn khi ExperimentMatrix quét tổ hợp.
+ *   - fromPropertiesFile()/toPropertiesFile() để lưu/đọc cấu hình từ file
+ *     .properties, phục vụ việc N6 tái lập đúng một tổ hợp cụ thể sau này.
  */
 public class TopologyConfig {
 
@@ -90,7 +100,8 @@ public class TopologyConfig {
 
     /**
      * Constructor đầy đủ — dùng khi chạy thí nghiệm có kiểm soát.
-     * (Skeleton tuần 39: chỉ khai báo, chưa cần validate.)
+     * Gọi validate() ngay sau khi tạo để bắt lỗi sớm thay vì để lỗi
+     * trôi tới lúc buildTopology() mới phát hiện.
      */
     public TopologyConfig(int numEdgeNodes,
                           int numSensorsPerEdge,
@@ -114,6 +125,7 @@ public class TopologyConfig {
         this.sensorToEdgeBandwidth = sensorToEdgeBandwidth;
         this.sensorToEdgeLatency = sensorToEdgeLatency;
         this.seed = seed;
+        validate();
     }
 
     // =====================================================================
@@ -166,7 +178,9 @@ public class TopologyConfig {
 
     /**
      * Kiểm tra cấu hình có hợp lệ trước khi dựng topology.
-     * TODO (tuần 40-41): bổ sung kiểm tra chi tiết.
+     * Hoàn thiện tuần 40-41: kiểm tra đầy đủ MỌI tham số, không chỉ phần lõi,
+     * vì N6 sẽ dùng setter để quét ma trận thí nghiệm — một giá trị âm/0 lọt
+     * qua đây sẽ chỉ nổ ra rất muộn bên trong CloudSim, khó debug hơn nhiều.
      *
      * @return true nếu hợp lệ
      * @throws IllegalStateException nếu có tham số vô lý
@@ -179,13 +193,28 @@ public class TopologyConfig {
             throw new IllegalStateException("numSensorsPerEdge phải >= 0");
         }
         if (edgeMips <= 0 || edgeNumPes <= 0) {
-            throw new IllegalStateException("Tài nguyên biên phải > 0");
+            throw new IllegalStateException("Tài nguyên biên (mips/numPes) phải > 0");
+        }
+        if (edgeRam <= 0) {
+            throw new IllegalStateException("edgeRam phải > 0");
+        }
+        if (edgeStorage <= 0) {
+            throw new IllegalStateException("edgeStorage phải > 0");
         }
         if (cloudMips <= 0 || cloudNumPes <= 0) {
-            throw new IllegalStateException("Tài nguyên trung tâm phải > 0");
+            throw new IllegalStateException("Tài nguyên trung tâm (mips/numPes) phải > 0");
+        }
+        if (cloudRam <= 0) {
+            throw new IllegalStateException("cloudRam phải > 0");
+        }
+        if (cloudStorage <= 0) {
+            throw new IllegalStateException("cloudStorage phải > 0");
         }
         if (edgeToCloudBandwidth <= 0 || edgeToCloudLatency < 0) {
             throw new IllegalStateException("Tham số mạng edge→cloud không hợp lệ");
+        }
+        if (sensorToEdgeBandwidth <= 0 || sensorToEdgeLatency < 0) {
+            throw new IllegalStateException("Tham số mạng sensor→edge không hợp lệ");
         }
         return true;
     }
@@ -198,11 +227,107 @@ public class TopologyConfig {
                 ", edgeMips=" + edgeMips +
                 ", edgeNumPes=" + edgeNumPes +
                 ", edgeRam=" + edgeRam +
+                ", edgeStorage=" + edgeStorage +
                 ", cloudMips=" + cloudMips +
                 ", cloudNumPes=" + cloudNumPes +
+                ", cloudRam=" + cloudRam +
+                ", cloudStorage=" + cloudStorage +
                 ", edgeToCloudBandwidth=" + edgeToCloudBandwidth +
                 ", edgeToCloudLatency=" + edgeToCloudLatency +
+                ", sensorToEdgeBandwidth=" + sensorToEdgeBandwidth +
+                ", sensorToEdgeLatency=" + sensorToEdgeLatency +
                 ", seed=" + seed +
                 '}';
+    }
+
+    // =====================================================================
+    // Builder — để N6 tạo config gọn hơn khi quét ma trận thí nghiệm
+    // =====================================================================
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private final TopologyConfig cfg = new TopologyConfig(); // bắt đầu từ giá trị mặc định
+
+        public Builder numEdgeNodes(int v) { cfg.setNumEdgeNodes(v); return this; }
+        public Builder numSensorsPerEdge(int v) { cfg.setNumSensorsPerEdge(v); return this; }
+        public Builder edgeMips(double v) { cfg.setEdgeMips(v); return this; }
+        public Builder edgeNumPes(int v) { cfg.setEdgeNumPes(v); return this; }
+        public Builder edgeRam(int v) { cfg.setEdgeRam(v); return this; }
+        public Builder edgeStorage(long v) { cfg.setEdgeStorage(v); return this; }
+        public Builder cloudMips(double v) { cfg.setCloudMips(v); return this; }
+        public Builder cloudNumPes(int v) { cfg.setCloudNumPes(v); return this; }
+        public Builder cloudRam(int v) { cfg.setCloudRam(v); return this; }
+        public Builder cloudStorage(long v) { cfg.setCloudStorage(v); return this; }
+        public Builder edgeToCloudBandwidth(double v) { cfg.setEdgeToCloudBandwidth(v); return this; }
+        public Builder edgeToCloudLatency(double v) { cfg.setEdgeToCloudLatency(v); return this; }
+        public Builder sensorToEdgeBandwidth(double v) { cfg.setSensorToEdgeBandwidth(v); return this; }
+        public Builder sensorToEdgeLatency(double v) { cfg.setSensorToEdgeLatency(v); return this; }
+        public Builder seed(long v) { cfg.setSeed(v); return this; }
+
+        /** Gọi validate() rồi trả về config — lỗi sẽ nổ ngay tại nơi build(), không phải muộn hơn. */
+        public TopologyConfig build() {
+            cfg.validate();
+            return cfg;
+        }
+    }
+
+    // =====================================================================
+    // Đọc / ghi file .properties — phục vụ tái lập một tổ hợp thí nghiệm
+    // =====================================================================
+
+    /**
+     * Đọc cấu hình từ file .properties. Các khoá nhận diện trùng tên field,
+     * ví dụ: numEdgeNodes=5, edgeMips=1200.0, seed=123
+     * Field nào không có trong file sẽ giữ giá trị mặc định.
+     */
+    public static TopologyConfig fromPropertiesFile(String path) throws IOException {
+        Properties p = new Properties();
+        try (InputStream in = Files.newInputStream(Path.of(path))) {
+            p.load(in);
+        }
+        TopologyConfig cfg = new TopologyConfig();
+        if (p.containsKey("numEdgeNodes")) cfg.setNumEdgeNodes(Integer.parseInt(p.getProperty("numEdgeNodes")));
+        if (p.containsKey("numSensorsPerEdge")) cfg.setNumSensorsPerEdge(Integer.parseInt(p.getProperty("numSensorsPerEdge")));
+        if (p.containsKey("edgeMips")) cfg.setEdgeMips(Double.parseDouble(p.getProperty("edgeMips")));
+        if (p.containsKey("edgeNumPes")) cfg.setEdgeNumPes(Integer.parseInt(p.getProperty("edgeNumPes")));
+        if (p.containsKey("edgeRam")) cfg.setEdgeRam(Integer.parseInt(p.getProperty("edgeRam")));
+        if (p.containsKey("edgeStorage")) cfg.setEdgeStorage(Long.parseLong(p.getProperty("edgeStorage")));
+        if (p.containsKey("cloudMips")) cfg.setCloudMips(Double.parseDouble(p.getProperty("cloudMips")));
+        if (p.containsKey("cloudNumPes")) cfg.setCloudNumPes(Integer.parseInt(p.getProperty("cloudNumPes")));
+        if (p.containsKey("cloudRam")) cfg.setCloudRam(Integer.parseInt(p.getProperty("cloudRam")));
+        if (p.containsKey("cloudStorage")) cfg.setCloudStorage(Long.parseLong(p.getProperty("cloudStorage")));
+        if (p.containsKey("edgeToCloudBandwidth")) cfg.setEdgeToCloudBandwidth(Double.parseDouble(p.getProperty("edgeToCloudBandwidth")));
+        if (p.containsKey("edgeToCloudLatency")) cfg.setEdgeToCloudLatency(Double.parseDouble(p.getProperty("edgeToCloudLatency")));
+        if (p.containsKey("sensorToEdgeBandwidth")) cfg.setSensorToEdgeBandwidth(Double.parseDouble(p.getProperty("sensorToEdgeBandwidth")));
+        if (p.containsKey("sensorToEdgeLatency")) cfg.setSensorToEdgeLatency(Double.parseDouble(p.getProperty("sensorToEdgeLatency")));
+        if (p.containsKey("seed")) cfg.setSeed(Long.parseLong(p.getProperty("seed")));
+        cfg.validate();
+        return cfg;
+    }
+
+    /** Ghi cấu hình hiện tại ra file .properties — dùng để lưu lại đúng tổ hợp đã chạy. */
+    public void toPropertiesFile(String path) throws IOException {
+        Properties p = new Properties();
+        p.setProperty("numEdgeNodes", String.valueOf(numEdgeNodes));
+        p.setProperty("numSensorsPerEdge", String.valueOf(numSensorsPerEdge));
+        p.setProperty("edgeMips", String.valueOf(edgeMips));
+        p.setProperty("edgeNumPes", String.valueOf(edgeNumPes));
+        p.setProperty("edgeRam", String.valueOf(edgeRam));
+        p.setProperty("edgeStorage", String.valueOf(edgeStorage));
+        p.setProperty("cloudMips", String.valueOf(cloudMips));
+        p.setProperty("cloudNumPes", String.valueOf(cloudNumPes));
+        p.setProperty("cloudRam", String.valueOf(cloudRam));
+        p.setProperty("cloudStorage", String.valueOf(cloudStorage));
+        p.setProperty("edgeToCloudBandwidth", String.valueOf(edgeToCloudBandwidth));
+        p.setProperty("edgeToCloudLatency", String.valueOf(edgeToCloudLatency));
+        p.setProperty("sensorToEdgeBandwidth", String.valueOf(sensorToEdgeBandwidth));
+        p.setProperty("sensorToEdgeLatency", String.valueOf(sensorToEdgeLatency));
+        p.setProperty("seed", String.valueOf(seed));
+        try (var out = Files.newOutputStream(Path.of(path))) {
+            p.store(out, "TopologyConfig — sinh tự động, xem TopologyConfig#toPropertiesFile");
+        }
     }
 }
