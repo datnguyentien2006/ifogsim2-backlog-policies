@@ -10,6 +10,7 @@ import org.cloudbus.cloudsim.provisioners.PeProvisionerSimple;
 import org.cloudbus.cloudsim.provisioners.RamProvisionerSimple;
 import org.fog.entities.FogDevice;
 import org.fog.entities.FogDeviceCharacteristics;
+import org.fog.hk261backlog.experiment.ExperimentConfig;
 import org.fog.policy.AppModuleAllocationPolicy;
 import org.fog.scheduler.StreamOperatorScheduler;
 import org.fog.utils.FogLinearPowerModel;
@@ -24,26 +25,35 @@ import java.util.List;
  *
  * Vai trò (theo Detail — Người 1):
  *   - Tuần 39: SKELETON (đã publish).
- *   - Tuần 40-41: hoàn thiện topology + runner (FILE NÀY).
+ *   - Tuần 40-41: hoàn thiện topology + runner + nhận kịch bản thí nghiệm (FILE NÀY).
  *   - Tuần 42: nối luồng dữ liệu thật
  *     Sensor → mất kết nối → BacklogQueue thật → tái kết nối
  *     → policy (N4/N5) → center.
  *
- * ĐÃ HOÀN THIỆN tuần 40-41: buildTopology() dựng đúng 1 cloud + N biên
- * (đọc từ TopologyConfig), nối quan hệ cha-con qua childToLatencyMap.
- * runSimulation() hiện chỉ smoke-test CloudSim khởi động/dừng sạch —
- * việc gắn Sensor + DisconnectionModel + SendingPolicy là phạm vi tuần 42,
- * cố tình CHƯA làm ở đây vì Application/tuple type chưa được định nghĩa.
+ * ĐÃ HOÀN THIỆN tuần 40-41:
+ *   - buildTopology(): dựng đúng 1 cloud + N biên (đọc từ TopologyConfig),
+ *     nối quan hệ cha-con qua childToLatencyMap.
+ *   - runExperiment(ExperimentConfig): nhận ĐẦY ĐỦ thông tin một kịch bản thí
+ *     nghiệm (chính sách nào, bao nhiêu biên — qua TopologyConfig bên trong
+ *     ExperimentConfig, mức lệch tồn đọng, tải dữ liệu mới), dựng topology
+ *     tương ứng, và chuẩn bị sẵn điểm nối để áp policy/disruption/metrics.
+ *
+ * CHƯA LÀM (cố ý, đúng ranh giới phân công tuần 42):
+ *   applyPolicyAndCollectMetrics() hiện throw UnsupportedOperationException vì
+ *   cần SendingPolicy (N4/N5), DisconnectionModel (N3), MetricsLogger (N6) —
+ *   những file này do các bạn khác phụ trách và CHƯA có trong repo tại thời
+ *   điểm viết file này. Khi 3 file đó đã merge vào repo, thay nội dung hàm đó
+ *   bằng lời gọi thật — KHÔNG cần đổi chữ ký hàm runExperiment(), nên N2 có
+ *   thể viết IntegrationTest.java nhắm vào runExperiment() ngay từ bây giờ mà
+ *   không lo phải sửa lại test khi tuần 42 code thật được nối vào.
  *
  * ⚠️ QUAN TRỌNG TRƯỚC KHI MERGE:
  *   Phần createFogDevice() dưới đây viết theo đúng pattern chuẩn dùng trong
  *   các ví dụ chính thức của iFogSim (VRGameFog, DCNSFog...). Vì môi trường
  *   viết code này không có mạng để tải/biên dịch thử với iFogSim2 thật, hãy
  *   mở file tham khảo N3 đang dùng — src/org/fog/test/perfeval/DCNSFog.java —
- *   và đối chiếu TỪNG chữ ký hàm/constructor (đặc biệt FogDeviceCharacteristics,
- *   PowerHost, FogLinearPowerModel, AppModuleAllocationPolicy) trước khi coi
- *   đây là bản hoàn thiện. Nếu có lệch tên lớp/tham số, sửa theo đúng bản
- *   trong repo đã clone — repo là nguồn sự thật, không phải file này.
+ *   và đối chiếu TỪNG chữ ký hàm/constructor trước khi coi đây là bản hoàn
+ *   thiện. Nếu có lệch tên lớp/tham số, sửa theo đúng bản trong repo đã clone.
  *
  * Cách chạy:
  *   java -cp "bin:jars/*" org.fog.hk261backlog.topology.BacklogTopologyTest
@@ -63,7 +73,7 @@ public class BacklogTopologyTest {
     /** Băng thông nội bộ host (không phải link mạng giữa các thiết bị) — giá trị mẫu chuẩn của iFogSim. */
     private static final int INTERNAL_HOST_BANDWIDTH = 10_000;
 
-    /** Công suất hoạt động (W) dùng cho FogLinearPowerModel — TODO: xác nhận lại theo DCNSFog.java nếu nhóm cần số liệu năng lượng chính xác (đây là chỉ số MỞ RỘNG, không bắt buộc theo đề bài). */
+    /** Công suất hoạt động (W) dùng cho FogLinearPowerModel — TODO: xác nhận lại theo DCNSFog.java nếu nhóm cần số liệu năng lượng chính xác (chỉ số MỞ RỘNG, không bắt buộc theo đề bài). */
     private static final double BUSY_POWER_W = 107.339;
     private static final double IDLE_POWER_W = 83.4333;
 
@@ -76,6 +86,9 @@ public class BacklogTopologyTest {
 
     /** Cấu hình topology đang dùng. */
     private TopologyConfig config;
+
+    /** Kịch bản thí nghiệm đang chạy (null nếu chỉ build topology trần, không qua runExperiment()). */
+    private ExperimentConfig currentExperiment;
 
     // =====================================================================
     // Constructor
@@ -91,7 +104,7 @@ public class BacklogTopologyTest {
     }
 
     // =====================================================================
-    // API công khai — Người 3/4/5/6 sẽ gọi
+    // API công khai — Người 2/3/4/5/6 sẽ gọi
     // =====================================================================
 
     /**
@@ -139,22 +152,48 @@ public class BacklogTopologyTest {
     }
 
     /**
+     * Chạy một kịch bản thí nghiệm ĐẦY ĐỦ: nhận vào chính sách nào, bao nhiêu
+     * biên (qua TopologyConfig lồng bên trong), mức lệch tồn đọng, và tải dữ
+     * liệu mới — dựng topology tương ứng rồi chuẩn bị áp dụng các phần còn lại.
+     *
+     * Đây là điểm vào DUY NHẤT mà N6 (ExperimentRunner) và N2
+     * (IntegrationTest) nên gọi — thay vì gọi buildTopology() trực tiếp —
+     * để không ai phải biết chi tiết cách topology được dựng.
+     *
+     * @param expConfig kịch bản thí nghiệm đầy đủ
+     * @return danh sách FogDevice đã dựng cho đúng topology của kịch bản này
+     */
+    public List<FogDevice> runExperiment(ExperimentConfig expConfig) {
+        if (expConfig == null) {
+            throw new IllegalArgumentException("ExperimentConfig không được null");
+        }
+        expConfig.validate();
+
+        this.currentExperiment = expConfig;
+        this.config = expConfig.getTopologyConfig();
+
+        List<FogDevice> devices = buildTopology();
+        applyPolicyAndCollectMetrics(expConfig, devices);
+
+        return devices;
+    }
+
+    /**
      * Chạy mô phỏng từ đầu đến cuối với topology đã dựng.
      *
      * Hiện tại (tuần 40-41): chỉ khởi động/dừng CloudSim để smoke-test topology
-     * hợp lệ, CHƯA có logic backlog/policy thật.
-     * TODO (tuần 42): tích hợp DisconnectionModel + BacklogQueue + SendingPolicy.
+     * hợp lệ, CHƯA có logic backlog/policy thật (xem applyPolicyAndCollectMetrics()).
      */
     public void runSimulation() {
         if (fogDevices.isEmpty()) {
-            throw new IllegalStateException("Gọi buildTopology() trước khi runSimulation()");
+            throw new IllegalStateException("Gọi buildTopology() hoặc runExperiment() trước khi runSimulation()");
         }
         CloudSim.startSimulation();
         CloudSim.stopSimulation();
     }
 
     /**
-     * Trả về danh sách FogDevice hiện có (sau khi buildTopology).
+     * Trả về danh sách FogDevice hiện có (sau khi buildTopology/runExperiment).
      */
     public List<FogDevice> getFogDevices() {
         return fogDevices;
@@ -165,6 +204,13 @@ public class BacklogTopologyTest {
      */
     public TopologyConfig getConfig() {
         return config;
+    }
+
+    /**
+     * Trả về kịch bản thí nghiệm đang chạy, hoặc null nếu chưa gọi runExperiment().
+     */
+    public ExperimentConfig getCurrentExperiment() {
+        return currentExperiment;
     }
 
     // =====================================================================
@@ -261,6 +307,28 @@ public class BacklogTopologyTest {
         parent.getChildToLatencyMap().put(child.getId(), latency);
     }
 
+    /**
+     * ĐIỂM NỐI (integration seam) cho tuần 42 — nơi DUY NHẤT cần sửa khi
+     * SendingPolicy (N4/N5), DisconnectionModel (N3), MetricsLogger (N6)
+     * đã có trong repo. Dự kiến nội dung khi đó:
+     *   1. Tạo DisconnectionModel theo expConfig.getBacklogImbalanceLevel(),
+     *      gắn vào từng edge trong devices.
+     *   2. Khởi tạo đúng SendingPolicy theo expConfig.getPolicyType() (factory
+     *      switch theo enum, map sang FifoPolicy/RateLimitPolicy/RoundRobinPolicy/
+     *      PriorityNewDataPolicy).
+     *   3. Sinh dữ liệu mới theo expConfig.getNewDataLoadRate() qua MockBacklogGenerator (N5).
+     *   4. Gọi MetricsLogger (N6) ghi lại kết quả đo cho runSimulation() dùng.
+     *
+     * Chưa triển khai vì 3 lớp phụ thuộc trên chưa có trong repo tại thời
+     * điểm viết file này — không phải lỗi, mà đúng ranh giới phân công
+     * (N1 nối luồng dữ liệu thật ở tuần 42).
+     */
+    private void applyPolicyAndCollectMetrics(ExperimentConfig expConfig, List<FogDevice> devices) {
+        throw new UnsupportedOperationException(
+                "Chưa tích hợp policy/disruption/metrics — chờ N3/N4/N5/N6 (phạm vi tuần 42). "
+                        + "Kịch bản: " + expConfig);
+    }
+
     // =====================================================================
     // Entry point — smoke test
     // =====================================================================
@@ -280,5 +348,17 @@ public class BacklogTopologyTest {
 
         runner.runSimulation();
         System.out.println("Smoke test xong — CloudSim khởi động/dừng sạch, chưa có logic backlog.");
+
+        // Ví dụ dùng runExperiment() (sẽ throw UnsupportedOperationException cho tới tuần 42):
+        // ExperimentConfig exp = ExperimentConfig.builder()
+        //         .experimentId("exp-001")
+        //         .topologyConfig(cfg)
+        //         .policyType(ExperimentConfig.PolicyType.FIFO)
+        //         .backlogImbalanceLevel(ExperimentConfig.BacklogImbalanceLevel.MODERATE)
+        //         .newDataLoadRate(5.0)
+        //         .repetitionIndex(0)
+        //         .scenarioSeed(123L)
+        //         .build();
+        // runner.runExperiment(exp);
     }
 }
