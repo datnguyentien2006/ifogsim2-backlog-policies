@@ -11,6 +11,7 @@ import org.cloudbus.cloudsim.provisioners.RamProvisionerSimple;
 import org.fog.entities.FogDevice;
 import org.fog.entities.FogDeviceCharacteristics;
 import org.fog.hk261backlog.experiment.ExperimentConfig;
+import org.fog.hk261backlog.policy.SendingPolicy;
 import org.fog.policy.AppModuleAllocationPolicy;
 import org.fog.scheduler.StreamOperatorScheduler;
 import org.fog.utils.FogLinearPowerModel;
@@ -19,75 +20,114 @@ import org.fog.utils.FogUtils;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
- * BacklogTopologyTest — Bộ chạy mô phỏng chính.
+ * BacklogTopologyTest — Bộ chạy mô phỏng chính (N1).
  *
- * Vai trò (theo Detail — Người 1):
- *   - Tuần 39: SKELETON (đã publish).
- *   - Tuần 40-41: hoàn thiện topology + runner + nhận kịch bản thí nghiệm (FILE NÀY).
- *   - Tuần 42: nối luồng dữ liệu thật
- *     Sensor → mất kết nối → BacklogQueue thật → tái kết nối
- *     → policy (N4/N5) → center.
+ * Nhận ĐẦY ĐỦ một kịch bản thí nghiệm (ExperimentConfig: chính sách nào, bao nhiêu biên,
+ * mức lệch tồn đọng, tải dữ liệu mới...) và chạy ra kết quả đo lường (TickEngine.Result).
  *
- * ĐÃ HOÀN THIỆN tuần 40-41:
- *   - buildTopology(): dựng đúng 1 cloud + N biên (đọc từ TopologyConfig),
- *     nối quan hệ cha-con qua childToLatencyMap.
- *   - runExperiment(ExperimentConfig): nhận ĐẦY ĐỦ thông tin một kịch bản thí
- *     nghiệm (chính sách nào, bao nhiêu biên — qua TopologyConfig bên trong
- *     ExperimentConfig, mức lệch tồn đọng, tải dữ liệu mới), dựng topology
- *     tương ứng, và chuẩn bị sẵn điểm nối để áp policy/disruption/metrics.
+ * Phân vai (đúng hợp đồng giao diện):
+ *   - buildTopology(): dựng 1 cloud + N biên trong iFogSim/CloudSim (cấu trúc topology).
+ *     Cũng là nơi gọi CloudSim.init(...) — cần làm TRƯỚC khi tạo ReconnectionScheduler
+ *     (entity của CloudSim) trong connectivityFactory.
+ *   - runExperiment(...): dựng topology → tạo policy MỚI + reset (§4.10) → chạy TickEngine
+ *     (vòng lặp theo tick, thực thi §2, §4.3, §4.4, §4.12). Vòng tick chạy trên đồng hồ
+ *     riêng, gọi ReconnectionScheduler#applyDue(now) đầu mỗi tick (thiết kế disruption §4),
+ *     nên KHÔNG cần CloudSim.startSimulation() để có kết quả.
+ *   - Mô hình theo hợp đồng §4.2: nút thắt chỉ là khả năng tiếp nhận của trung tâm
+ *     (TopologyConfig.cloudIngestBytesPerSec). Băng thông/độ trễ từng biên khai báo cho
+ *     iFogSim KHÔNG ảnh hưởng số đo.
  *
- * CHƯA LÀM (cố ý, đúng ranh giới phân công tuần 42):
- *   applyPolicyAndCollectMetrics() hiện throw UnsupportedOperationException vì
- *   cần SendingPolicy (N4/N5), DisconnectionModel (N3), MetricsLogger (N6) —
- *   những file này do các bạn khác phụ trách và CHƯA có trong repo tại thời
- *   điểm viết file này. Khi 3 file đó đã merge vào repo, thay nội dung hàm đó
- *   bằng lời gọi thật — KHÔNG cần đổi chữ ký hàm runExperiment(), nên N2 có
- *   thể viết IntegrationTest.java nhắm vào runExperiment() ngay từ bây giờ mà
- *   không lo phải sửa lại test khi tuần 42 code thật được nối vào.
+ * Phần cần "keo" với code của người khác (không có ở đây vì phụ thuộc API thật của
+ * N3/N5): xem Dependencies — ConnectivityView (bọc DisruptionPlan/ReconnectionScheduler)
+ * và BacklogStore (bọc BacklogQueue/BacklogItem).
  *
- * ⚠️ QUAN TRỌNG TRƯỚC KHI MERGE:
- *   Phần createFogDevice() dưới đây viết theo đúng pattern chuẩn dùng trong
- *   các ví dụ chính thức của iFogSim (VRGameFog, DCNSFog...). Vì môi trường
- *   viết code này không có mạng để tải/biên dịch thử với iFogSim2 thật, hãy
- *   mở file tham khảo N3 đang dùng — src/org/fog/test/perfeval/DCNSFog.java —
- *   và đối chiếu TỪNG chữ ký hàm/constructor trước khi coi đây là bản hoàn
- *   thiện. Nếu có lệch tên lớp/tham số, sửa theo đúng bản trong repo đã clone.
+ * Cách chạy (smoke test, từ thư mục gốc repo; Windows dùng ';' thay cho ':'):
+ *   java -cp "out/production/iFogSim:jars/*:jars/commons-math3-3.5/commons-math3-3.5.jar" \
+ *        org.fog.hk261backlog.topology.BacklogTopologyTest
  *
- * Cách chạy:
- *   java -cp "bin:jars/*" org.fog.hk261backlog.topology.BacklogTopologyTest
+ * ⚠️ createFogDevice() viết theo pattern chuẩn của ví dụ iFogSim; nếu repo đã clone có
+ *   chữ ký khác, sửa theo repo (repo là nguồn sự thật).
  */
 public class BacklogTopologyTest {
 
     // =====================================================================
-    // Hằng số cấu hình mô phỏng
+    // Hằng số
     // =====================================================================
 
-    /** Số bước lập lịch (tick) tối đa cho một lần chạy. */
+    /** Giữ để tương thích; số tick thật lấy từ ExperimentConfig#getTotalTicks(). Không còn dùng. */
+    @Deprecated
     public static final int MAX_SIMULATION_TICKS = 10_000;
 
-    /** Khoảng thời gian mỗi tick (giây mô phỏng) — cũng dùng làm schedulingInterval của FogDevice. */
-    public static final double TICK_INTERVAL_SEC = 1.0;
+    /** Tick mặc định (giây). Giá trị thực dùng là TopologyConfig#getTickSeconds(). */
+    public static final double TICK_INTERVAL_SEC = TopologyConfig.DEFAULT_TICK_SECONDS;
 
     /** Băng thông nội bộ host (không phải link mạng giữa các thiết bị) — giá trị mẫu chuẩn của iFogSim. */
     private static final int INTERNAL_HOST_BANDWIDTH = 10_000;
 
-    /** Công suất hoạt động (W) dùng cho FogLinearPowerModel — TODO: xác nhận lại theo DCNSFog.java nếu nhóm cần số liệu năng lượng chính xác (chỉ số MỞ RỘNG, không bắt buộc theo đề bài). */
+    /** Công suất cho FogLinearPowerModel — chỉ số MỞ RỘNG (năng lượng), không bắt buộc theo đề bài. */
     private static final double BUSY_POWER_W = 107.339;
     private static final double IDLE_POWER_W = 83.4333;
 
     // =====================================================================
-    // Trạng thái mô phỏng
+    // Các thành phần do bên ngoài cung cấp cho mỗi lần chạy
     // =====================================================================
 
-    /** Danh sách toàn bộ FogDevice trong topology (cloud ở index 0, các biên theo sau). */
+    /**
+     * Gói các thành phần của MỘT lần chạy. N6 (ExperimentRunner) dựng đối tượng này cho từng
+     * kịch bản; các factory được gọi MỚI cho mỗi lần chạy để không rò trạng thái giữa các lần.
+     */
+    public static final class Dependencies {
+        private final Supplier<SendingPolicy> policyFactory;
+        private final Function<ExperimentConfig, TickEngine.ConnectivityView> connectivityFactory;
+        private final Function<ExperimentConfig, TickEngine.BacklogStore> storeFactory;
+        private TickEngine.TickObserver observer;
+        private boolean runnerPollsSelected = TickEngine.DEFAULT_RUNNER_POLLS_SELECTED;
+        private List<Integer> edgeIds;
+
+        /**
+         * @param policyFactory       tạo policy MỚI theo expConfig.getPolicyType() và tham số riêng
+         *                            (oldDataQuotaBytes, R/burstSeconds, quantumBytes...) — hợp đồng §4.10
+         * @param connectivityFactory dựng DisruptionPlan từ (reconnectionMode, backlogImbalanceLevel,
+         *                            scenarioSeed, horizonSeconds) rồi bọc ReconnectionScheduler. Được gọi
+         *                            SAU buildTopology() nên CloudSim đã init.
+         * @param storeFactory        tạo kho backlog (BacklogQueue theo biên) rỗng cho lần chạy
+         */
+        public Dependencies(Supplier<SendingPolicy> policyFactory,
+                            Function<ExperimentConfig, TickEngine.ConnectivityView> connectivityFactory,
+                            Function<ExperimentConfig, TickEngine.BacklogStore> storeFactory) {
+            if (policyFactory == null || connectivityFactory == null || storeFactory == null) {
+                throw new IllegalArgumentException("Các factory không được null");
+            }
+            this.policyFactory = policyFactory;
+            this.connectivityFactory = connectivityFactory;
+            this.storeFactory = storeFactory;
+        }
+
+        /** Gắn bộ nhận số liệu từng tick (MetricsLogger của N6). */
+        public Dependencies withObserver(TickEngine.TickObserver o) { this.observer = o; return this; }
+
+        /** false nếu policy tự poll item đã chọn (xem ghi chú mâu thuẫn §1 vs §4.5 trong TickEngine). */
+        public Dependencies withRunnerPollsSelected(boolean v) { this.runnerPollsSelected = v; return this; }
+
+        /** Id các biên theo đúng id module disruption dùng; mặc định 0..numEdgeNodes-1. */
+        public Dependencies withEdgeIds(List<Integer> ids) { this.edgeIds = ids; return this; }
+    }
+
+    // =====================================================================
+    // Trạng thái
+    // =====================================================================
+
+    /** Danh sách toàn bộ FogDevice (cloud ở index 0, các biên theo sau). */
     private List<FogDevice> fogDevices;
 
     /** Cấu hình topology đang dùng. */
     private TopologyConfig config;
 
-    /** Kịch bản thí nghiệm đang chạy (null nếu chỉ build topology trần, không qua runExperiment()). */
+    /** Kịch bản đang chạy (null nếu chỉ build topology trần). */
     private ExperimentConfig currentExperiment;
 
     // =====================================================================
@@ -104,15 +144,13 @@ public class BacklogTopologyTest {
     }
 
     // =====================================================================
-    // API công khai — Người 2/3/4/5/6 sẽ gọi
+    // API công khai
     // =====================================================================
 
     /**
-     * Khởi tạo CloudSim và dựng topology từ config: 1 cloud (level 0) +
-     * numEdgeNodes biên (level 1), mỗi biên nối vào cloud với bandwidth/latency
-     * lấy từ config.
+     * Khởi tạo CloudSim và dựng topology: 1 cloud (level 0) + numEdgeNodes biên (level 1).
      *
-     * @return danh sách FogDevice đã tạo (cloud ở index 0, các biên theo sau)
+     * @return danh sách FogDevice (cloud ở index 0, các biên theo sau)
      */
     public List<FogDevice> buildTopology() {
         int numUsers = 1;
@@ -122,16 +160,14 @@ public class BacklogTopologyTest {
 
         fogDevices.clear();
 
-        // --- Cloud (level 0, không có parent) ---
         FogDevice cloud = createFogDevice(
                 "cloud",
                 config.getCloudMips(), config.getCloudNumPes(),
                 config.getCloudRam(), config.getCloudStorage(),
-                config.getEdgeToCloudBandwidth(), 0.0, // latency uplink không áp dụng cho cloud
+                config.getEdgeToCloudBandwidth(), 0.0, // cloud không có uplink
                 0, -1);
         fogDevices.add(cloud);
 
-        // --- Các biên (level 1, con của cloud) ---
         for (int i = 0; i < config.getNumEdgeNodes(); i++) {
             FogDevice edge = createFogDevice(
                     "edge-" + i,
@@ -142,47 +178,47 @@ public class BacklogTopologyTest {
             connectChildToParent(edge, cloud, config.getEdgeToCloudLatency());
             fogDevices.add(edge);
         }
-
-        // TODO (tuần 42 — phạm vi tích hợp dữ liệu thật, KHÔNG làm ở đây):
-        //   - Gắn numSensorsPerEdge Sensor vào mỗi edge (cần Application + tuple type).
-        //   - Nối Sensor → DisconnectionModel (N3) → BacklogQueue thật (N5)
-        //     → SendingPolicy (N4/N5) → cloud, đúng theo mô tả trong Detail.
-
         return fogDevices;
     }
 
     /**
-     * Chạy một kịch bản thí nghiệm ĐẦY ĐỦ: nhận vào chính sách nào, bao nhiêu
-     * biên (qua TopologyConfig lồng bên trong), mức lệch tồn đọng, và tải dữ
-     * liệu mới — dựng topology tương ứng rồi chuẩn bị áp dụng các phần còn lại.
+     * Chạy MỘT kịch bản thí nghiệm đầy đủ và trả về kết quả đo.
+     * Đây là điểm vào duy nhất cho N6 (ExperimentRunner) và N2 (IntegrationTest).
      *
-     * Đây là điểm vào DUY NHẤT mà N6 (ExperimentRunner) và N2
-     * (IntegrationTest) nên gọi — thay vì gọi buildTopology() trực tiếp —
-     * để không ai phải biết chi tiết cách topology được dựng.
+     * Thứ tự: validate → buildTopology() (CloudSim.init) → policy mới → connectivity → store
+     * → TickEngine.run() (policy.reset() được gọi đầu lần chạy).
      *
-     * @param expConfig kịch bản thí nghiệm đầy đủ
-     * @return danh sách FogDevice đã dựng cho đúng topology của kịch bản này
+     * LƯU Ý đổi chữ ký so với bản tuần 40 (runExperiment(ExperimentConfig) trả List&lt;FogDevice&gt;):
+     * chạy thật cần policy/connectivity/store do N3/N4/N5 cung cấp nên phải truyền thêm
+     * Dependencies; kết quả là TickEngine.Result thay vì danh sách thiết bị
+     * (danh sách thiết bị vẫn lấy qua getFogDevices()).
      */
-    public List<FogDevice> runExperiment(ExperimentConfig expConfig) {
+    public TickEngine.Result runExperiment(ExperimentConfig expConfig, Dependencies deps) {
         if (expConfig == null) {
             throw new IllegalArgumentException("ExperimentConfig không được null");
+        }
+        if (deps == null) {
+            throw new IllegalArgumentException("Dependencies không được null");
         }
         expConfig.validate();
 
         this.currentExperiment = expConfig;
         this.config = expConfig.getTopologyConfig();
 
-        List<FogDevice> devices = buildTopology();
-        applyPolicyAndCollectMetrics(expConfig, devices);
+        buildTopology(); // CloudSim.init trước khi connectivityFactory tạo ReconnectionScheduler
 
-        return devices;
+        SendingPolicy policy = deps.policyFactory.get();                // mới mỗi lần chạy (§4.10)
+        TickEngine.ConnectivityView connectivity = deps.connectivityFactory.apply(expConfig);
+        TickEngine.BacklogStore store = deps.storeFactory.apply(expConfig);
+
+        TickEngine engine = new TickEngine(expConfig, policy, connectivity, store,
+                deps.observer, deps.edgeIds, deps.runnerPollsSelected);
+        return engine.run();
     }
 
     /**
-     * Chạy mô phỏng từ đầu đến cuối với topology đã dựng.
-     *
-     * Hiện tại (tuần 40-41): chỉ khởi động/dừng CloudSim để smoke-test topology
-     * hợp lệ, CHƯA có logic backlog/policy thật (xem applyPolicyAndCollectMetrics()).
+     * Smoke test: chỉ khởi động/dừng CloudSim với topology đã dựng (không có logic backlog).
+     * Không cần cho runExperiment().
      */
     public void runSimulation() {
         if (fogDevices.isEmpty()) {
@@ -192,23 +228,15 @@ public class BacklogTopologyTest {
         CloudSim.stopSimulation();
     }
 
-    /**
-     * Trả về danh sách FogDevice hiện có (sau khi buildTopology/runExperiment).
-     */
     public List<FogDevice> getFogDevices() {
         return fogDevices;
     }
 
-    /**
-     * Trả về cấu hình topology đang dùng.
-     */
     public TopologyConfig getConfig() {
         return config;
     }
 
-    /**
-     * Trả về kịch bản thí nghiệm đang chạy, hoặc null nếu chưa gọi runExperiment().
-     */
+    /** Kịch bản đang chạy, hoặc null nếu chưa gọi runExperiment(). */
     public ExperimentConfig getCurrentExperiment() {
         return currentExperiment;
     }
@@ -218,21 +246,17 @@ public class BacklogTopologyTest {
     // =====================================================================
 
     /**
-     * Tạo một FogDevice với tài nguyên cho trước, theo đúng pattern dựng
-     * PowerHost + FogDeviceCharacteristics chuẩn của iFogSim.
+     * Tạo một FogDevice theo pattern dựng PowerHost + FogDeviceCharacteristics chuẩn của iFogSim.
      *
-     * @param name        tên định danh (ví dụ "cloud", "edge-0")
-     * @param mips        MIPS mỗi PE
-     * @param numPes      số PE
-     * @param ram         RAM (MB)
-     * @param storage     dung lượng lưu trữ (MB)
-     * @param bandwidth   băng thông uplink/downlink tới parent (Mbps) — dùng
-     *                    chung một giá trị cho cả 2 chiều vì đề bài không
-     *                    yêu cầu tách riêng
-     * @param latency     độ trễ uplink tới parent (ms)
-     * @param level       cấp trong cây topology (0 = cloud)
-     * @param parentId    id của node cha (-1 nếu là cloud)
-     * @return FogDevice đã tạo
+     * @param name      tên định danh ("cloud", "edge-0")
+     * @param mips      MIPS mỗi PE
+     * @param numPes    số PE
+     * @param ram       RAM (MB)
+     * @param storage   dung lượng lưu trữ (MB)
+     * @param bandwidth băng thông uplink/downlink tới parent (Mbps) — chỉ khai báo cho iFogSim
+     * @param latency   độ trễ uplink tới parent (ms) — chỉ khai báo cho iFogSim
+     * @param level     cấp trong cây (0 = cloud)
+     * @param parentId  id node cha (-1 nếu là cloud)
      */
     protected FogDevice createFogDevice(String name,
                                         double mips, int numPes,
@@ -267,9 +291,7 @@ public class BacklogTopologyTest {
         double costPerMem = 0.05;
         double costPerStorage = 0.001;
         double costPerBw = 0.0;
-        // Storage vật lý gắn ngoài (khác với "storage" nội bộ của host ở trên) —
-        // để rỗng vì đề bài không yêu cầu mô phỏng lưu trữ ngoài.
-        List<Storage> storageList = new ArrayList<>();
+        List<Storage> storageList = new ArrayList<>(); // storage vật lý gắn ngoài: không cần
 
         FogDeviceCharacteristics characteristics = new FogDeviceCharacteristics(
                 arch, os, vmm, host, timeZone,
@@ -281,11 +303,11 @@ public class BacklogTopologyTest {
                     name, characteristics,
                     new AppModuleAllocationPolicy(hostList),
                     storageList,
-                    TICK_INTERVAL_SEC,
+                    config.getTickSeconds(),
                     bandwidth,  // uplinkBandwidth
-                    bandwidth,  // downlinkBandwidth (dùng chung giá trị với uplink)
+                    bandwidth,  // downlinkBandwidth (dùng chung giá trị)
                     latency,    // uplinkLatency
-                    0.0);       // ratePerMips — không tính phí xử lý, đề bài không yêu cầu
+                    0.0);       // ratePerMips — đề bài không yêu cầu chi phí
         } catch (Exception e) {
             throw new RuntimeException("Không tạo được FogDevice '" + name + "'", e);
         }
@@ -295,42 +317,15 @@ public class BacklogTopologyTest {
         return fogDevice;
     }
 
-    /**
-     * Đăng ký quan hệ cha-con giữa 2 FogDevice: gán parentId cho con, thêm id
-     * con vào danh sách childrenIds của cha, và ghi độ trễ của liên kết vào
-     * childToLatencyMap của cha — 3 việc này CloudSim/iFogSim dùng để tính
-     * latency khi định tuyến tuple giữa các thiết bị.
-     */
+    /** Gán parentId cho con, thêm id con vào childrenIds của cha và ghi latency vào childToLatencyMap của cha. */
     private void connectChildToParent(FogDevice child, FogDevice parent, double latency) {
         child.setParentId(parent.getId());
         parent.getChildrenIds().add(child.getId());
         parent.getChildToLatencyMap().put(child.getId(), latency);
     }
 
-    /**
-     * ĐIỂM NỐI (integration seam) cho tuần 42 — nơi DUY NHẤT cần sửa khi
-     * SendingPolicy (N4/N5), DisconnectionModel (N3), MetricsLogger (N6)
-     * đã có trong repo. Dự kiến nội dung khi đó:
-     *   1. Tạo DisconnectionModel theo expConfig.getBacklogImbalanceLevel(),
-     *      gắn vào từng edge trong devices.
-     *   2. Khởi tạo đúng SendingPolicy theo expConfig.getPolicyType() (factory
-     *      switch theo enum, map sang FifoPolicy/RateLimitPolicy/RoundRobinPolicy/
-     *      PriorityNewDataPolicy).
-     *   3. Sinh dữ liệu mới theo expConfig.getNewDataLoadRate() qua MockBacklogGenerator (N5).
-     *   4. Gọi MetricsLogger (N6) ghi lại kết quả đo cho runSimulation() dùng.
-     *
-     * Chưa triển khai vì 3 lớp phụ thuộc trên chưa có trong repo tại thời
-     * điểm viết file này — không phải lỗi, mà đúng ranh giới phân công
-     * (N1 nối luồng dữ liệu thật ở tuần 42).
-     */
-    private void applyPolicyAndCollectMetrics(ExperimentConfig expConfig, List<FogDevice> devices) {
-        throw new UnsupportedOperationException(
-                "Chưa tích hợp policy/disruption/metrics — chờ N3/N4/N5/N6 (phạm vi tuần 42). "
-                        + "Kịch bản: " + expConfig);
-    }
-
     // =====================================================================
-    // Entry point — smoke test
+    // Entry point — smoke test cấu trúc topology
     // =====================================================================
 
     public static void main(String[] args) {
@@ -347,18 +342,18 @@ public class BacklogTopologyTest {
         }
 
         runner.runSimulation();
-        System.out.println("Smoke test xong — CloudSim khởi động/dừng sạch, chưa có logic backlog.");
+        System.out.println("Smoke test xong — CloudSim khởi động/dừng sạch.");
 
-        // Ví dụ dùng runExperiment() (sẽ throw UnsupportedOperationException cho tới tuần 42):
+        // Ví dụ chạy một kịch bản (cần Dependencies bọc code của N3/N4/N5):
         // ExperimentConfig exp = ExperimentConfig.builder()
-        //         .experimentId("exp-001")
-        //         .topologyConfig(cfg)
+        //         .experimentId("exp-001").topologyConfig(cfg)
         //         .policyType(ExperimentConfig.PolicyType.FIFO)
         //         .backlogImbalanceLevel(ExperimentConfig.BacklogImbalanceLevel.MODERATE)
-        //         .newDataLoadRate(5.0)
-        //         .repetitionIndex(0)
-        //         .scenarioSeed(123L)
-        //         .build();
-        // runner.runExperiment(exp);
+        //         .newDataLoadRatio(0.3).horizonSeconds(300).scenarioSeed(123L).build();
+        // TickEngine.Result r = runner.runExperiment(exp, new Dependencies(
+        //         () -> /* new FifoPolicy() */ null,
+        //         c -> /* bọc ReconnectionScheduler */ null,
+        //         c -> /* bọc BacklogQueue */ null));
+        // System.out.println(r);
     }
 }
