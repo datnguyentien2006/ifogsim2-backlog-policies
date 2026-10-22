@@ -1,28 +1,24 @@
-# Build outputs
-bin/
+# build outputs
+sim/build/
+build-test/
 out/
-output/
-*.class
+bin/
 
-# Eclipse
-.classpath
-.project
+# vendored upstream artifacts not needed to build/run
+iFogSim2-vendor/output/
+
+# local toolchain (523 MB JDK) — install JDK 21 and set your own path
+tools/
+
+# IDE noise (project files themselves ARE committed)
+.idea/workspace.xml
+.idea/tasks.xml
+*.codestream
 .settings/
 
-# IntelliJ
-.idea/
-*.iml
-
-# Python
-__pycache__/
-*.pyc
-.venv/
-venv/
-
-# OS
+# OS noise
 Thumbs.db
 .DS_Store
 
-# Office temp
-~$*.docx
-~$*.pptx
+# local notes
+*.log

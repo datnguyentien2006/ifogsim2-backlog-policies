@@ -1,48 +1,84 @@
-# iFogSim2 (The New Version)
-A Toolkit for Modeling and Simulation of Resource Management Techniques in Internet of Things, Edge and Fog Computing Environments with the following new features:
- * Mobility-support and Migration Management
-   * Supporting real mobility datasets
-   * Implementing different random mobility models 
- * Microservice Orchestration
- * Dynamic Distributed Clustering
- * Any Combinations of Above-mentioned Features
- * Full Compatibility with the Latest Version of the CloudSim (i.e., (https://github.com/Cloudslab/cloudsim/releases)) and [Previous iFogSim Version](https://github.com/Cloudslab/iFogSim1) and Tutorials
+# Backfill scheduling simulation — edge → receiving center (Topic 2)
 
-iFogSim2 currently encompasses several new usecases such as:
- * Audio Translation Scenario
- * Healthcare Scenario
- * Crowd-sensing Scenario
+A complete, reproducible comparison of **four data-backfill scheduling policies** on a
+fog/edge topology built with **iFogSim2**: several edge servers with realistic link outages
+feed one receiving center; when a link is down, generated data waits as *backfill* and must
+be scheduled back without starving *fresh* data.
 
-# How to run iFogSim2 ?
-* Eclipse IDE:
-  * Create a Java project
-  * Inside the project directory, initialize an empty Git repository with the following command:
-  ```
-  git init
-  ```
-  * Add the Git repository of iFogSim2 as the `origin` remote:
-  ```
-  git remote add origin https://github.com/Cloudslab/iFogSim
-  ```
-  * Pull the contents of the repository to your machine:
-  ```
-  git pull origin main
-  ```
-  * Include the JARs to your project  
-  * Run the example files (e.g. TranslationServiceFog_Clustering.java, CrowdSensing_Microservices_RandomMobility_Clustering.java) to get started
+## The four policies (identical inputs, fair fight)
 
-* IntelliJ IDEA:
-  * Clone the iFogSim2 Git repository to desired folder:
-  ```
-  git clone https://github.com/Cloudslab/iFogSim
-  ```
-  * Select "project from existing resources" from the "File" drop-down menu
-  * Verify the Java version
-  * Verify the external libraries in the "JARs" Folder are added to the project
-  * Run the example files (e.g. TranslationServiceFog_Clustering.java, CrowdSensing_Microservices_RandomMobility_Clustering.java) to get started
+| key | policy | in one sentence |
+|-----|--------|-----------------|
+| `fifo` | FIFO | strict generation order — fresh data queues behind the accumulated backlog |
+| `rr` | Round-robin | budget split in turn over connected edges with data |
+| `ratelimit` | Rate-limit | backfill goes at a **fixed rate R** no matter the backlog; remainder → fresh data |
+| `newfirst` | New-data-first | fresh data first; backlog gets only a small fixed quota q |
 
+All four receive **the same everything** per run: queues, arrival streams (per-sensor seeded
+Poisson), outage timelines (separate stream), token budget, seed. The scheduler only
+executes a policy's decisions — it never overrides them.
 
-# References
- * Redowan Mahmud, Samodha Pallewatta, Mohammad Goudarzi, and Rajkumar Buyya, <A href="https://arxiv.org/abs/2109.05636">iFogSim2: An Extended iFogSim Simulator for Mobility, Clustering, and Microservice Management in Edge and Fog Computing Environments</A>, Journal of Systems and Software (JSS), Volume 190, Pages: 1-17, ISSN:0164-1212, Elsevier Press, Amsterdam, The Netherlands, August 2022.
- * Harshit Gupta, Amir Vahid Dastjerdi , Soumya K. Ghosh, and Rajkumar Buyya, <A href="http://www.buyya.com/papers/iFogSim.pdf">iFogSim: A Toolkit for Modeling and Simulation of Resource Management Techniques in Internet of Things, Edge and Fog Computing Environments</A>, Software: Practice and Experience (SPE), Volume 47, Issue 9, Pages: 1275-1296, ISSN: 0038-0644, Wiley Press, New York, USA, September 2017.
- * Redowan Mahmud and Rajkumar Buyya, <A href="http://www.buyya.com/papers/iFogSim-Tut.pdf">Modelling and Simulation of Fog and Edge Computing Environments using iFogSim Toolkit</A>, Fog and Edge Computing: Principles and Paradigms, R. Buyya and S. Srirama (eds), 433-466pp, ISBN: 978-111-95-2498-4, Wiley Press, New York, USA, January 2019.
+## Repository layout
+
+```
+iFogSim2-vendor/     pristine upstream Cloudslab/iFogSim2 (unchanged)
+sim/                 our framework (Java, plain javac build — no Maven)
+    build.ps1 / run.ps1    build + run/grid driver (Windows PowerShell)
+    src/backfill/          model, devices, controllers, policies, metrics, runners
+    build/                 compiled vendor + our classes (git-ignorable)
+web/                 visual demo + in-browser batch compare (pure JS, no dependencies)
+    index.html / style.css / engine.js / app.js
+    test/engine_test.js    headless parity + conservation test (node web/test/engine_test.js)
+    WEB.md lives in docs/ — full guide: knobs, canvas, charts, batch mode, parity contract
+analysis/            Python scripts that aggregate results/runs into tables/figures
+results/runs/        CSVs: <scenario>/run_<scenario>_s<seed>_<policy>{_run,_tick}.csv
+docs/                MODEL.md (the model spec), ADD_POLICY.md, REPORT.md
+tools/jdk-21...      local JDK 21 (upstream iFogSim2 needs SequencedCollection API)
+```
+
+## Quick start
+
+Harness prerequisites: **JDK 21** on your machine (the upstream
+iFogSim2 needs the `SequencedCollection` API). The `tools/` directory holds a local copy of
+Eclipse Temurin 21 (excluded from git via `.gitignore` as it is ~500 MB — install your own
+or reuse this one).
+
+Windows (PowerShell):
+
+```powershell
+# one run (compiles the vendor once if needed, then the framework)
+.\sim\run.ps1 run -Policy fifo -Scenario base -Seed 0        # -> results\runs\base\*.csv
+
+# full experiment grid (10 scenarios x 4 policies x seeds), ~6-11 s per run
+.\sim\run.ps1 grid -Seeds 5
+
+# framework self-test (equal inputs, conservation, capacity bound)
+.\sim\run.ps1 test
+```
+
+Linux/macOS (bash mirrors of the same commands):
+
+```bash
+./sim/run.sh run  -P fifo -S base -s 0     # one run
+./sim/run.sh grid -s 5                     # full grid
+./sim/run.sh test                          # self-test
+```
+
+Web demo and tests:
+
+```text
+# web visual demo: just open web\index.html in a browser
+# web headless test:  node web\test\engine_test.js
+```
+
+Scenario slices of the experiment grid (all one-factor-at-a-time from `base`):
+
+* `base` (N=6, ρ=0.7, EVEN, SCATTERED), `N4/N10/N16`, `ρ ∈ {0.4, 0.9, 1.1}`,
+  `imbalance_zipf`, `imbalance_dominant`, `storm` (= COHORT outage regime).
+* `results/runs/<scenario>/...` — summaries in `*_run.csv`, 0.1 s time series in `*_tick.csv`.
+
+Report with measured conclusions: `docs/REPORT.md`.
+
+See `docs/MODEL.md` for the exact model semantics, `docs/WEB.md` for the visual demo
+and `docs/ADD_POLICY.md` to add a policy. An external bug-report review (15 findings) was
+independently verified and actioned — see `docs/BUG-REPORT-RESPONSE.md`.
