@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BackfillSched — edge data-backfill scheduling visualizer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>BackfillSched</h1>
+  <p class="sub">Edge data-backfill scheduling — same inputs, four policies, one receiving center.
+     JS visual mirror of the Java/iFogSim2 simulation framework.</p>
+</header>
+
+<main>
+  <!-- =============== left: controls =============== -->
+  <aside id="controls">
+    <div class="card">
+      <h3>Scenario</h3>
+      <label>Edge servers N
+        <select id="cfgN">
+          <option>4</option><option selected>6</option><option>10</option><option>16</option>
+        </select>
+      </label>
+      <label>Load ρ (new-data rate / C)
+        <select id="cfgRho">
+          <option>0.4</option><option selected>0.7</option><option>0.9</option><option>1.1</option>
+        </select>
+      </label>
+      <label>Backlog imbalance
+        <select id="cfgImbalance">
+          <option selected>EVEN</option><option>ZIPF</option><option>DOMINANT</option>
+        </select>
+      </label>
+      <label id="zipfRow" style="display:none">ZIPF α
+        <input type="number" id="cfgZipf" value="1" step="0.1" min="0.2" max="2" class="inline">
+      </label>
+      <label>Outage regime
+        <select id="cfgOutage">
+          <option selected>SCATTERED</option><option>COHORT</option>
+        </select>
+      </label>
+      <label>Seed
+        <input type="number" id="cfgSeed" value="7" step="1" class="inline">
+      </label>
+      <label>Data window (s)
+        <select id="cfgDuration">
+          <option>120</option><option selected>300</option><option>600</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="card">
+      <h3>Policy</h3>
+      <label>Scheduling policy
+        <select id="cfgPolicy">
+          <option value="fifo">FIFO</option>
+          <option value="rr">Round-robin</option>
+          <option value="ratelimit">Rate-limit</option>
+          <option value="newfirst">New-data-first</option>
+        </select>
+      </label>
+      <p id="policyDesc" class="desc"></p>
+    </div>
+
+    <div class="card">
+      <h3>Playback</h3>
+      <div class="btnrow">
+        <button id="btnPlay">▶ Play</button>
+        <button id="btnStep">Step tick</button>
+        <button id="btnReset">Reset</button>
+      </div>
+      <label>Speed
+        <select id="cfgSpeed">
+          <option value="0">1×</option>
+          <option value="1" selected>20×</option>
+          <option value="2">100×</option>
+        </select>
+      </label>
+      <div class="stats">
+        <div><span>sim time</span><b id="statsTime">—</b></div>
+        <div><span>delivered</span><b id="statsDeliv">—</b></div>
+        <div><span></span><b id="statsSplit" class="small">—</b></div>
+        <div><span>queued now</span><b id="statsQueue">—</b></div>
+        <div><span>backlog peak</span><b id="statsPeak">—</b></div>
+        <div><span>outages</span><b id="statsOutages">—</b></div>
+        <div><span>policy rule</span><b id="statsPolicyRate" class="small">—</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Batch compare + export</h3>
+      <div class="btnrow">
+        <button id="btnCompare">Run 4 policies (same seed)</button>
+        <button id="btnCsv" title="Export the comparison table">CSV</button>
+        <button id="btnTickCsv" title="Export the per-tick series of the current run">Tick CSV</button>
+      </div>
+      <p id="compareCfg" class="desc"></p>
+      <table id="compareTable" class="compare"></table>
+      <canvas id="barCanvas" width="640" height="240"></canvas>
+    </div>
+  </aside>
+
+  <!-- =============== right: visualization =============== -->
+  <section id="stage">
+    <div class="card">
+      <h3>Topology — edges ⇄ receiving center</h3>
+      <canvas id="topoCanvas" class="topo"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>Queued units</h3>
+      <canvas id="chartBacklog" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <h3>Served rates (grants per tick)</h3>
+      <canvas id="chartServed" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <h3>Delivery latency (2 s rolling mean)</h3>
+      <canvas id="chartDelay" class="chart-canvas"></canvas>
+    </div>
+    <div class="card">
+      <h3>Link events</h3>
+      <div id="eventsLog" class="events"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Model: 1 unit = 1 tuple; center token bucket = round(C·ΔT) units/tick (C = 1200 u/s, ΔT = 0.1 s);
+  edge uplink 5 Mb/s; sensors start after 5 s warmup; SCATTERED = Poisson drops (rate 0.01/s) with
+  lognormal outages (mean 20 s, cv 0.8); COHORT = storm every 120 s dropping 50% of edges with near-simultaneous
+  reconnection. All policies see identical queues/outages per seed.
+</footer>
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

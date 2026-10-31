@@ -1,0 +1,24 @@
+# build outputs
+sim/build/
+build-test/
+out/
+bin/
+
+# vendored upstream artifacts not needed to build/run
+iFogSim2-vendor/output/
+
+# local toolchain (523 MB JDK) — install JDK 21 and set your own path
+tools/
+
+# IDE noise (project files themselves ARE committed)
+.idea/workspace.xml
+.idea/tasks.xml
+*.codestream
+.settings/
+
+# OS noise
+Thumbs.db
+.DS_Store
+
+# local notes
+*.log
