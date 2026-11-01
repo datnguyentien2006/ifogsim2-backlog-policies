@@ -1,0 +1,2 @@
+policy,scenario,seed,N,rho,C,imbalance,outageMode,dataStart,dataEnd,genNew,genBack,delivNew,delivBack,leftNew,leftBack,newDelayMean,newDelayP50,newDelayP95,newDelayP99,backDelayMean,backDelayP50,backDelayP95,backDelayP99,backlogArea,backlogPeak,outages,restoresWithBacklog,drains,drainMean,drainMax,jainBackfill
+fifo,base,3,6,0.700000,1200.000000,EVEN,SCATTERED,50.008352,655.000000,404563,103079,404498,90065,65,13014,0.876654,0.084939,4.053134,8.975550,15.489424,12.646681,37.674913,55.179460,2041554.200000,13254.000000,39,34,32,6.057573,23.913557,0.934122
