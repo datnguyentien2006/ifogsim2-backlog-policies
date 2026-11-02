@@ -11,7 +11,9 @@ for (const cfgTweak of [
 ]) {
     const cfg = defaultConfig();
     cfgTweak(cfg);
-    cfg.simDuration = 120;
+    // 300 s: COHORT storms fire every 120 s (at 120 s and 240 s), so a 120 s window
+    // would contain at most one storm at its very end and the regime would be untested.
+    cfg.simDuration = 300;
     cfg.seed = 11;
     const label = JSON.stringify([cfg.outageMode, cfg.imbalance, cfg.loadFactor, cfg.numEdges]);
     let rows = [];
@@ -25,6 +27,10 @@ for (const cfgTweak of [
         }
     }
     const ref = rows[0][1];
+    // Non-vacuity: parity and conservation hold trivially when nothing happens, so the
+    // variant must actually produce outages and backfill to say anything.
+    if (ref.outages === 0) fail(label + " produced no outages (variant is vacuous)");
+    if (ref.genBack === 0) fail(label + " produced no backfill (variant is vacuous)");
     for (const [e, s] of rows) {
         if (s.genNew !== ref.genNew) fail(label + " genNew parity " + e.policy.key);
         if (s.genBack !== ref.genBack) fail(label + " genBack parity " + e.policy.key);
