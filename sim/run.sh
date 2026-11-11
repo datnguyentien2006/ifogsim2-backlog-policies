@@ -41,7 +41,8 @@ mkdir -p "$outdir"
 case "$mode" in
     run)
         scenario="${scenario:-base}"
-        java "${jvm[@]}" -cp "$cp" backfill.run.RunMain "${policy:-fifo}" "$scenario" "$seed" "$outdir"
+        # Same layout as the grid: results/runs/<scenario>/run_<scenario>_s<seed>_<policy>.csv
+        java "${jvm[@]}" -cp "$cp" backfill.run.RunMain "${policy:-fifo}" "$scenario" "$seed" "$outdir/$scenario"
         ;;
     test)
         java "${jvm[@]}" -cp "$cp" backfill.run.SelfTest

@@ -61,14 +61,32 @@ function defaultConfig() {
         zipfAlpha: 1.0,
         dominantShare: 0.6,
         outageMode: "SCATTERED",     // SCATTERED | COHORT
-        dropRatePerEdge: 0.01,       // Poisson drop rate (1/s)
-        downMean: 20.0, downCV: 0.8, // scattered: lognormal down-spells
+        dropRatePerEdge: 0.01,       // Poisson drop rate (1/s), fleet mean
+        outageRateSpread: 0.5,       // linear spread of per-edge drop rates (0 = uniform)
+        downMean: 20.0, downCV: 0.8, // scattered: lognormal down-spells, fleet mean
+        outageDownSpread: 0.3,       // linear spread of per-edge down-means (0 = uniform)
         cohortPeriod: 120.0, cohortFraction: 0.5, cohortCV: 0.15,
         rateLimitFactor: 0.5,        // rate-limit: R = f * C (backfill rate)
         backfillQuotaFactor: 0.05,   // new-first: quota q = f * C
         simDuration: 300.0,
         seed: 7
     };
+}
+
+/** Per-edge link-drop rate of the SCATTERED outage process — mirrors SimParams.dropRateOfEdge. */
+function dropRateOfEdge(cfg, i) {
+    const n = cfg.numEdges, s = cfg.outageRateSpread || 0;
+    if (s === 0 || n <= 1) return cfg.dropRatePerEdge;
+    const f = 1 + s * (1 - 2 * i / (n - 1));
+    return cfg.dropRatePerEdge * Math.max(1e-4, f);
+}
+
+/** Per-edge mean down-spell duration — mirrors SimParams.downMeanOfEdge (opposite orientation). */
+function downMeanOfEdge(cfg, i) {
+    const n = cfg.numEdges, s = cfg.outageDownSpread || 0;
+    if (s === 0 || n <= 1) return cfg.downMean;
+    const f = 1 + s * (2 * i / (n - 1) - 1);
+    return cfg.downMean * Math.max(1e-4, f);
 }
 
 /** Per-edge new-data rate lambda_i implementing the imbalance mode. */
@@ -273,7 +291,7 @@ class Engine {
         // arm the outage machinery
         if (cfg.outageMode === "SCATTERED") {
             for (const e of this.edges) {
-                const mean = 1 / Math.max(1e-9, cfg.dropRatePerEdge);
+                const mean = 1 / Math.max(1e-9, dropRateOfEdge(cfg, e.index));
                 e.nextMove = { t: this.outageRng.expDraw(mean), toDown: true };
             }
         } else {
@@ -308,8 +326,8 @@ class Engine {
                     this.setLink(e, e.nextMove.toDown, now);
                     const nextIsDown = !e.nextMove.toDown;
                     const dur = nextIsDown
-                        ? this.outageRng.lognormalDraw(cfg.downMean, Math.max(0.01, cfg.downCV))
-                        : this.outageRng.expDraw(1 / Math.max(1e-9, cfg.dropRatePerEdge));
+                        ? this.outageRng.lognormalDraw(downMeanOfEdge(cfg, e.index), Math.max(0.01, cfg.downCV))
+                        : this.outageRng.expDraw(1 / Math.max(1e-9, dropRateOfEdge(cfg, e.index)));
                     e.nextMove = { t: now + dur, toDown: nextIsDown };
                 }
             }

@@ -18,6 +18,12 @@ All four receive **the same everything** per run: queues, arrival streams (per-s
 Poisson), outage timelines (separate stream), token budget, seed. The scheduler only
 executes a policy's decisions — it never overrides them.
 
+The outage model gives **each edge its own link-loss parameters** (project requirement):
+drop probability and outage duration ramp linearly around the fleet means
+(`dropRatePerEdge`, `downMean`) — edge 0 is the least reliable link, edge N−1 the most
+reliable (`outageRateSpread = 0.5`, `outageDownSpread = 0.3`; set both to 0 for the legacy
+uniform model). `storm` (COHORT) outages are fleet-wide events and ignore the spread.
+
 ## Repository layout
 
 ```
@@ -32,7 +38,7 @@ web/                 visual demo + in-browser batch compare (pure JS, no depende
     WEB.md lives in docs/ — full guide: knobs, canvas, charts, batch mode, parity contract
 analysis/            Python scripts that aggregate results/runs into tables/figures
 results/runs/        CSVs: <scenario>/run_<scenario>_s<seed>_<policy>{_run,_tick}.csv
-docs/                MODEL.md (the model spec), ADD_POLICY.md, REPORT.md
+docs/                MODEL.md (the model spec), ADD_POLICY.md, SELFTEST.md, REPORT.md
 tools/jdk-21...      local JDK 21 (upstream iFogSim2 needs SequencedCollection API)
 ```
 

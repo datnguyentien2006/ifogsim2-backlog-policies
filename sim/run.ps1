@@ -31,7 +31,8 @@ Push-Location $repo
 try {
     if ($Mode -eq "run") {
         if (-not $Scenario) { $Scenario = "base" }
-        & $java @jvm -cp $cp backfill.run.RunMain $Policy $Scenario $Seed $OutDir
+        # Same layout as the grid: results/runs/<scenario>/run_<scenario>_s<seed>_<policy>.csv
+        & $java @jvm -cp $cp backfill.run.RunMain $Policy $Scenario $Seed (Join-Path $OutDir $Scenario)
         if ($LASTEXITCODE -ne 0) { throw "run failed: $Policy $Scenario $Seed" }
     } elseif ($Mode -eq "test") {
         & $java @jvm -cp $cp backfill.run.SelfTest

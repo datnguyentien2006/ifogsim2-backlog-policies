@@ -19,9 +19,11 @@ import backfill.devices.EdgeServerDevice;
  *
  * <ul>
  *   <li><b>SCATTERED</b> — every edge has an independent clock: link-up spells are exponential
- *       (Poisson drop process at rate {@code dropRatePerEdge}); the down-spells are log-normal
- *       with mean {@code downMean} and cv {@code downCV}, so edges reconnect at scattered,
- *       uncorrelated points in time.</li>
+ *       (Poisson drop process at the edge's own rate {@link SimParams#dropRateOfEdge}); the
+ *       down-spells are log-normal with the edge's own mean {@link SimParams#downMeanOfEdge} and
+ *       cv {@code downCV}, so edges reconnect at scattered, uncorrelated points in time. The
+ *       per-edge rates and durations ramp linearly around the fleet means, so every edge owns a
+ *       distinct (drop probability, outage duration) pair.</li>
  *   <li><b>COHORT</b> — storms: every {@code cohortPeriod} seconds a random subset of
  *       {@code cohortFraction} of the (currently connected) edges drops AT THE SAME INSTANT; each
  *       member's down-spell is log-normal with the same mean but a small cv ({@code cohortCV}),
@@ -49,7 +51,7 @@ public class OutageController extends SimEntity {
     public void startEntity() {
         if (p.outageMode == SimParams.OutageMode.SCATTERED) {
             for (EdgeServerDevice dev : edges) {
-                schedule(getId(), drawUpSpell(), BackfillEvents.OUTAGE_MOVE, new OutageMove(dev.edgeIndex, true));
+                schedule(getId(), drawUpSpell(dev.edgeIndex), BackfillEvents.OUTAGE_MOVE, new OutageMove(dev.edgeIndex, true));
             }
         } else {
             schedule(getId(), p.cohortPeriod, BackfillEvents.STORM_MOVE, null);
@@ -78,10 +80,10 @@ public class OutageController extends SimEntity {
         EdgeServerDevice dev = edges.get(move.edgeIndex());
         if (move.toDown()) {
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_DOWN);
-            send(getId(), drawDownSpell(), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), false));
+            send(getId(), drawDownSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), false));
         } else {
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_UP);
-            send(getId(), drawUpSpell(), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
+            send(getId(), drawUpSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
         }
     }
 
@@ -109,18 +111,21 @@ public class OutageController extends SimEntity {
 
     // ----------------------------------------------------------------------------- draws
 
-    /** Exponential link-up spell duration (Poisson drop process Avec rate p.dropRatePerEdge). */
-    private double drawUpSpell() {
-        double mean = 1.0 / Math.max(1e-9, p.dropRatePerEdge);
+    /** Exponential link-up spell duration for one edge: its own Poisson drop process at rate
+     *  {@code p.dropRateOfEdge(edge)} — every edge has its own drop probability. */
+    private double drawUpSpell(int edge) {
+        double mean = 1.0 / Math.max(1e-9, p.dropRateOfEdge(edge));
         return expDraw(mean);
     }
 
-    /** Log-normal down-spell (wide cv => scattered reconnection). */
-    private double drawDownSpell() {
-        return lognormalDraw(p.downMean, Math.max(0.01, p.downCV));
+    /** Log-normal down-spell for one edge with its own mean {@code p.downMeanOfEdge(edge)}
+     *  (wide cv => scattered reconnection). */
+    private double drawDownSpell(int edge) {
+        return lognormalDraw(p.downMeanOfEdge(edge), Math.max(0.01, p.downCV));
     }
 
-    /** Log-normal down-spell with the cohort's small cv (light-tailed => aligned reconnection). */
+    /** Log-normal down-spell with the cohort's small cv (light-tailed => aligned reconnection).
+     *  Storms are fleet-wide events, so the per-edge down-mean spread does not apply. */
     private double drawDownSpellCohort() {
         return lognormalDraw(p.downMean, Math.max(0.01, p.cohortCV));
     }

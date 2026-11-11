@@ -37,7 +37,7 @@ Each selector maps 1-to-1 to a `SimParams` field in the Java framework:
 | **Edge servers N** | 4, 6, 10, 16 | number of edge servers around the receiving center |
 | **Load ρ** | 0.4, 0.7, 0.9, 1.1 | total fresh-data rate as a fraction of center capacity `C = 1200 u/s` (ρ = Σλᵢ/C). 0.7 = nominal; 1.1 = permanently overloaded |
 | **Backlog imbalance** | EVEN / ZIPF / DOMINANT | how the fresh-data rate is split among edges: even shares; ZIPF(α, editable when selected, default α=1) skew; DOMINANT (edge-0 emits 60 % of all data) |
-| **Outage regime** | SCATTERED / COHORT | SCATTERED: each edge independently drops (Poisson, rate 0.01/s) with lognormal outages (mean 20 s, cv 0.8 — heavy-tailed). COHORT: "storm" every 120 s drops ~50 % of the connected edges *at the same instant*, reconnected within a short window (cv 0.15) |
+| **Outage regime** | SCATTERED / COHORT | SCATTERED: each edge independently drops (Poisson) with lognormal outages (cv 0.8 — heavy-tailed) — **each edge has its own rate and duration**: they ramp linearly around the fleet means (0.01/s, 20 s), edge 0 worst, edge N−1 best (`outageRateSpread = 0.5`, `outageDownSpread = 0.3` in the engine config). COHORT: "storm" every 120 s drops ~50 % of the connected edges *at the same instant*, reconnected within a short window (cv 0.15); fleet-wide, so the spread does not apply |
 | **Seed** | integer | base of all random streams. Same seed + same scenario = **identical arrival streams and outage timelines for every policy** (the fairness guarantee) |
 | **Data window** | 120 / 300 / 600 s | simulated duration of data generation after a 5 s warmup (during warmup only the links cycle; no data) |
 

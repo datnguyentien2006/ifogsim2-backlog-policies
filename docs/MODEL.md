@@ -56,8 +56,8 @@ than what the policy grants.
 
 | mode        | behavior |
 |-------------|----------|
-| `SCATTERED` | every edge independently: up-spells are exponential (Poisson drop rate 0.01/s), down-spells are lognormal with mean 20 s and cv 0.8 (heavy-tailed: rare long outages). |
-| `COHORT`    | ("storm") every 120 s a random 50% of the currently connected edges drop **at the same instant**; each restores after a lognormal with mean 20 s and **cv 0.15** — i.e. several edges reconnect within a short window, dumping their backlog on the scheduler at once. |
+| `SCATTERED` | every edge independently: up-spells are exponential (Poisson) and down-spells are lognormal with cv 0.8 (heavy-tailed: rare long outages). **Each edge owns its own parameters**: the drop rate ramps linearly around the fleet mean 0.01/s (edge 0 drops most at ×1.5, edge N−1 least at ×0.5, `outageRateSpread = 0.5`), and the mean down-spell ramps the opposite way around the fleet mean 20 s (edge 0 recovers fastest, edge N−1 slowest, `outageDownSpread = 0.3`), so every edge has a distinct (drop probability, outage duration) pair while both fleet means stay exact. `spread = 0` gives the legacy uniform model where all edges are identical. |
+| `COHORT`    | ("storm") every 120 s a random 50% of the currently connected edges drop **at the same instant**; each restores after a lognormal with mean 20 s and **cv 0.15** — i.e. several edges reconnect within a short window, dumping their backlog on the scheduler at once. Storms are fleet-wide events, so the per-edge spread does not apply. |
 
 Outage streams are seeded independently of arrival streams so the same
 (scenario, seed) pair gives **identical arrival streams and identical outage timelines**
@@ -116,8 +116,8 @@ tailed outage spell may still be in progress at cutoff, `leftBack = backlogPeak`
 | `ρ`             | 0.7     |
 | `C`             | 1200 u/s|
 | `ΔT`            | 0.1 s   |
-| loss rate       | 0.01/s per edge |
-| down spells     | lognormal(20 s, cv 0.8) (scattered) / (20 s, cv 0.15) (cohort) |
+| loss rate       | 0.01/s per edge (fleet mean; per-edge rates spread ×1.5…×0.5 by `outageRateSpread`) |
+| down spells     | lognormal(20 s, cv 0.8) (scattered) / (20 s, cv 0.15) (cohort); per-edge means spread ×1.15…×0.85 by `outageDownSpread` (scattered only) |
 | storm timeframe | every 120 s, 50% of edges (cohort only) |
 | warmup          | 5 s (web) / 50 s (Java/iFogSim2 engine bootstrap) |
 | data window     | 600 s (Java grid) / 300 s default (web) |

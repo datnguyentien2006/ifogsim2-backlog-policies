@@ -50,12 +50,23 @@ public class SimParams {
     // ---------------- outage generator ----------------
     /** SCATTERED: independent per-edge outage clocks. COHORT: groups of edges drop/reconnect together. */
     public OutageMode outageMode = OutageMode.SCATTERED;
-    /** SCATTERED mode: mean drops per edge per second (Poisson rate of the link-up spell length). */
+    /** SCATTERED mode: mean drops per edge per second (Poisson rate of the link-up spell length).
+     *  This is the FLEET-MEAN rate; per-edge rates are spread around it by {@link #outageRateSpread}. */
     public double dropRatePerEdge = 0.01;
-    /** Mean down-spell duration in seconds (log-normal with the cv below). */
+    /** Mean down-spell duration in seconds (log-normal with the cv below) — fleet mean, see
+     *  {@link #outageDownSpread} for the per-edge spread. */
     public double downMean = 20.0;
     /** Coefficient of variation of the down-spell duration (log-normal). */
     public double downCV = 0.8;
+    /** SCATTERED: linear spread of the per-edge drop RATE around the fleet mean
+     *  (edge 0 drops most: rate × (1+s); edge N-1 least: rate × (1-s); the fleet mean is kept
+     *  exactly at {@link #dropRatePerEdge}). 0 = every edge has the same drop probability
+     *  (the legacy uniform model). Range: 0..1. */
+    public double outageRateSpread = 0.5;
+    /** SCATTERED: linear spread of the per-edge MEAN DOWN-SPELL around the fleet mean,
+     *  opposite orientation to the rate spread (edge 0 recovers fastest, edge N-1 slowest; the
+     *  fleet mean is kept exactly at {@link #downMean}). 0 = uniform down-spell durations. */
+    public double outageDownSpread = 0.3;
     /** COHORT mode: seconds between storms; a random {@link #cohortFraction} of the edges drops each time. */
     public double cohortPeriod = 120.0;
     /** COHORT mode: fraction of edges joining each storm. */
@@ -121,6 +132,30 @@ public class SimParams {
         return (int) Math.max(1, Math.round(centerCapacity * decisionInterval));
     }
 
+    /**
+     * Per-edge link-drop rate (1/s) of the SCATTERED outage process: edge {@code i} has its own
+     * drop probability. The rates ramp linearly around the fleet mean {@link #dropRatePerEdge}
+     * (edge 0 = (1+s)·mean … edge N-1 = (1-s)·mean), so the fleet mean is preserved exactly.
+     * With {@code outageRateSpread == 0} every edge drops at the same rate.
+     */
+    public double dropRateOfEdge(int i) {
+        if (outageRateSpread == 0.0 || numEdges <= 1) return dropRatePerEdge;
+        double f = 1.0 + outageRateSpread * (1.0 - 2.0 * i / (numEdges - 1));
+        return dropRatePerEdge * Math.max(1e-4, f);
+    }
+
+    /**
+     * Per-edge MEAN down-spell duration (s): the counterpart of {@link #dropRateOfEdge} with the
+     * opposite orientation (edge 0 recovers fastest, edge N-1 slowest), so every edge owns a
+     * distinct (drop probability, outage duration) pair while the fleet mean stays at
+     * {@link #downMean}. COHORT storms ignore this knob by design (they are fleet-wide events).
+     */
+    public double downMeanOfEdge(int i) {
+        if (outageDownSpread == 0.0 || numEdges <= 1) return downMean;
+        double f = 1.0 + outageDownSpread * (2.0 * i / (numEdges - 1) - 1.0);
+        return downMean * Math.max(1e-4, f);
+    }
+
     /** Rate-limit policy: fixed BACKFILL share per decision tick, residual tokens go to new data. */
     public int rateLimitTokensPerTick() {
         return (int) Math.max(1, Math.round(centerCapacity * decisionInterval * rateLimitFactor));
@@ -142,6 +177,7 @@ public class SimParams {
         p.centerCapacity = centerCapacity; p.loadFactor = loadFactor;
         p.imbalance = imbalance; p.zipfAlpha = zipfAlpha; p.dominantShare = dominantShare;
         p.outageMode = outageMode; p.dropRatePerEdge = dropRatePerEdge; p.downMean = downMean; p.downCV = downCV;
+        p.outageRateSpread = outageRateSpread; p.outageDownSpread = outageDownSpread;
         p.cohortPeriod = cohortPeriod; p.cohortFraction = cohortFraction; p.cohortCV = cohortCV;
         p.rateLimitFactor = rateLimitFactor; p.backfillQuotaFactor = backfillQuotaFactor;
         p.tupleNwLength = tupleNwLength; p.tupleCpuLength = tupleCpuLength;
