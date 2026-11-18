@@ -3,6 +3,7 @@ package backfill.controllers;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 
 import org.cloudbus.cloudsim.core.CloudSim;
@@ -36,15 +37,51 @@ public class OutageController extends SimEntity {
     /** Payload: which edge moves to which state next. */
     public record OutageMove(int edgeIndex, boolean toDown) { }
 
+    /** Fail-fast cap on handled link moves: a count this high almost always means a time-unit mistake. */
+    static final int MAX_MOVES = 1_000_000;
+
     private final SimParams p;
     private final List<EdgeServerDevice> edges;
     private final Random rng;
+    private long moveCount = 0;
 
     public OutageController(String name, SimParams params, List<EdgeServerDevice> edges) {
-        super(name);
+        super(validatedName(name, params, edges));
         this.p = params;
         this.edges = edges;
         this.rng = new Random(params.seed * 8191L + 101);
+    }
+
+    /** Validates the arguments before SimEntity registers the entity with CloudSim. */
+    private static String validatedName(String name, SimParams params, List<EdgeServerDevice> edges) {
+        Objects.requireNonNull(params, "params");
+        Objects.requireNonNull(edges, "edges");
+        Objects.requireNonNull(params.outageMode, "outageMode");
+
+        // Per-edge up/down spells: SCATTERED, and COHORT members once their storm is over.
+        requireNonNegative(params.dropRatePerEdge, "dropRatePerEdge");
+        requireUnitRange(params.outageRateSpread, "outageRateSpread");
+        requireUnitRange(params.outageDownSpread, "outageDownSpread");
+        requirePositive(params.downMean, "downMean");
+        requireNonNegative(params.downCV, "downCV");
+
+        if (params.outageMode == SimParams.OutageMode.COHORT) {
+            requirePositive(params.cohortPeriod, "cohortPeriod");
+            if (!(params.cohortFraction > 0 && params.cohortFraction <= 1))
+                throw new IllegalArgumentException("cohortFraction must be in (0, 1], got " + params.cohortFraction);
+            requireNonNegative(params.cohortCV, "cohortCV");
+        }
+
+        if (edges.isEmpty()) throw new IllegalArgumentException("edges must not be empty");
+        if (edges.size() != params.numEdges)
+            throw new IllegalArgumentException("edges.size() must equal params.numEdges: expected "
+                    + params.numEdges + ", got " + edges.size());
+        for (int i = 0; i < edges.size(); i++) {
+            if (edges.get(i).edgeIndex != i)
+                throw new IllegalArgumentException("edges[" + i + "].edgeIndex must be " + i
+                        + ", got " + edges.get(i).edgeIndex);
+        }
+        return name;
     }
 
     @Override
@@ -77,6 +114,9 @@ public class OutageController extends SimEntity {
     // ------------------------------------------------------------------ state machine
 
     private void handleMove(OutageMove move) {
+        if (++moveCount > MAX_MOVES)
+            throw new IllegalStateException("OutageController: more than " + MAX_MOVES
+                    + " link moves; check that rates are per second and durations in seconds");
         EdgeServerDevice dev = edges.get(move.edgeIndex());
         if (move.toDown()) {
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_DOWN);
@@ -141,5 +181,22 @@ public class OutageController extends SimEntity {
         double mu = Math.log(Math.max(1e-9, mean)) - sigma2 / 2.0;
         double z = rng.nextGaussian();
         return Math.max(1e-6, Math.exp(mu + Math.sqrt(sigma2) * z));
+    }
+
+    // ------------------------------------------------------------------------ validation
+
+    private static void requirePositive(double value, String name) {
+        if (!Double.isFinite(value) || value <= 0)
+            throw new IllegalArgumentException(name + " must be finite and > 0, got " + value);
+    }
+
+    private static void requireNonNegative(double value, String name) {
+        if (!Double.isFinite(value) || value < 0)
+            throw new IllegalArgumentException(name + " must be finite and >= 0, got " + value);
+    }
+
+    private static void requireUnitRange(double value, String name) {
+        if (!(value >= 0 && value <= 1))
+            throw new IllegalArgumentException(name + " must be in [0, 1], got " + value);
     }
 }

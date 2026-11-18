@@ -7,16 +7,16 @@ import org.cloudbus.cloudsim.core.CloudSimTags;
  * (an enum implementing {@link CloudSimTags}, dispatched via Java 21 enum patterns).
  */
 public enum BackfillEvents implements CloudSimTags {
-    /** Scheduler chip: recurring decision tick. */
+    /** SchedulerEntity -> itself: recurring decision tick. */
     TICK,
-    /** Connectivity lost for a child edge device. */
+    /** OutageController -> EdgeServerDevice: link to the center lost. Data = null. */
     LINK_DOWN,
-    /** Connectivity restored for an edge device. */
+    /** OutageController -> EdgeServerDevice: link to the center restored. Data = null. */
     LINK_UP,
-    /** Scheduler hand-off: transmit up to the granted list of data units. Data = {@link backfill.data.GrantPayload}. */
+    /** SchedulerEntity -> EdgeServerDevice: transmit the granted units. Data = {@link backfill.data.GrantPayload}. */
     EGRESS_GRANT,
-    /** Outage controller bookkeeping event (start / stop an outage spell). */
+    /** OutageController -> itself: one edge changes state. Data = {@link backfill.controllers.OutageController.OutageMove}. */
     OUTAGE_MOVE,
-    /** Cohort storm maintenance event. */
+    /** OutageController -> itself: next storm (COHORT only). Data = null. */
     STORM_MOVE
 }
