@@ -3,6 +3,8 @@ package backfill;
 import java.util.ArrayList;
 import java.util.List;
 
+import backfill.util.SpellDistribution;
+
 /**
  * Complete configuration of one backfill-simulation scenario.
  *
@@ -53,10 +55,10 @@ public class SimParams {
     /** SCATTERED mode: mean drops per edge per second (Poisson rate of the link-up spell length).
      *  This is the FLEET-MEAN rate; per-edge rates are spread around it by {@link #outageRateSpread}. */
     public double dropRatePerEdge = 0.01;
-    /** Mean down-spell duration in seconds (log-normal with the cv below) — fleet mean, see
+    /** Mean down-spell duration in seconds ({@link #downSpellDist} with the cv below) — fleet mean, see
      *  {@link #outageDownSpread} for the per-edge spread. */
     public double downMean = 20.0;
-    /** Coefficient of variation of the down-spell duration (log-normal). */
+    /** Coefficient of variation of the down-spell duration (ignored by EXPONENTIAL and DETERMINISTIC). */
     public double downCV = 0.8;
     /** SCATTERED: linear spread of the per-edge drop RATE around the fleet mean
      *  (edge 0 drops most: rate × (1+s); edge N-1 least: rate × (1-s); the fleet mean is kept
@@ -73,6 +75,15 @@ public class SimParams {
     public double cohortFraction = 0.5;
     /** COHORT mode: cv of member reconnect offsets within one storm (small => simultaneous reconnection). */
     public double cohortCV = 0.15;
+    /** Distribution of the link-up spell (time until an edge's next drop), with mean
+     *  1 / {@link #dropRateOfEdge}. EXPONENTIAL = Poisson drops, the published model. */
+    public SpellDistribution upSpellDist = SpellDistribution.EXPONENTIAL;
+    /** cv of the link-up spell for LOGNORMAL and UNIFORM (EXPONENTIAL always has cv 1). */
+    public double upCV = 1.0;
+    /** Distribution of the down-spell (outage duration): mean {@link #downMeanOfEdge} with cv
+     *  {@link #downCV}, storm members mean {@link #downMean} with cv {@link #cohortCV}.
+     *  LOGNORMAL = the published model. */
+    public SpellDistribution downSpellDist = SpellDistribution.LOGNORMAL;
 
     // ---------------- policy knobs (equal inputs for every policy) ----------------
     /** Rate-limit policy: fixed backfill rate R = rateLimitFactor * centerCapacity (units/s),
@@ -179,6 +190,7 @@ public class SimParams {
         p.outageMode = outageMode; p.dropRatePerEdge = dropRatePerEdge; p.downMean = downMean; p.downCV = downCV;
         p.outageRateSpread = outageRateSpread; p.outageDownSpread = outageDownSpread;
         p.cohortPeriod = cohortPeriod; p.cohortFraction = cohortFraction; p.cohortCV = cohortCV;
+        p.upSpellDist = upSpellDist; p.upCV = upCV; p.downSpellDist = downSpellDist;
         p.rateLimitFactor = rateLimitFactor; p.backfillQuotaFactor = backfillQuotaFactor;
         p.tupleNwLength = tupleNwLength; p.tupleCpuLength = tupleCpuLength;
         p.uplinkBandwidth = uplinkBandwidth; p.downlinkBandwidth = downlinkBandwidth;

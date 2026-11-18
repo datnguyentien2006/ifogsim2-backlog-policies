@@ -23,6 +23,8 @@ drop probability and outage duration ramp linearly around the fleet means
 (`dropRatePerEdge`, `downMean`) — edge 0 is the least reliable link, edge N−1 the most
 reliable (`outageRateSpread = 0.5`, `outageDownSpread = 0.3`; set both to 0 for the legacy
 uniform model). `storm` (COHORT) outages are fleet-wide events and ignore the spread.
+Both spells follow a configurable distribution (`upSpellDist`, `downSpellDist`: exponential,
+lognormal, uniform or deterministic; defaults exponential / lognormal, see docs/MODEL.md §5).
 
 ## Repository layout
 

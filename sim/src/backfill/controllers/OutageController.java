@@ -13,6 +13,7 @@ import org.cloudbus.cloudsim.core.SimEvent;
 import backfill.BackfillEvents;
 import backfill.SimParams;
 import backfill.devices.EdgeServerDevice;
+import backfill.util.SpellDistribution;
 
 /**
  * Connectivity-event module (project step 2): each edge server loses its link to the center and
@@ -31,6 +32,10 @@ import backfill.devices.EdgeServerDevice;
  *       so several edges restore their links within a short window of each other — a realistic
  *       simultaneous-reconnection burst that piles backlog onto the scheduler at once.</li>
  * </ul>
+ *
+ * <p>Exponential and log-normal are the defaults: {@link SimParams#upSpellDist} and
+ * {@link SimParams#downSpellDist} switch either spell to any {@link SpellDistribution} with the
+ * same mean.</p>
  */
 public class OutageController extends SimEntity {
 
@@ -57,19 +62,22 @@ public class OutageController extends SimEntity {
         Objects.requireNonNull(params, "params");
         Objects.requireNonNull(edges, "edges");
         Objects.requireNonNull(params.outageMode, "outageMode");
+        Objects.requireNonNull(params.upSpellDist, "upSpellDist");
+        Objects.requireNonNull(params.downSpellDist, "downSpellDist");
 
         // Per-edge up/down spells: SCATTERED, and COHORT members once their storm is over.
         requireNonNegative(params.dropRatePerEdge, "dropRatePerEdge");
         requireUnitRange(params.outageRateSpread, "outageRateSpread");
         requireUnitRange(params.outageDownSpread, "outageDownSpread");
         requirePositive(params.downMean, "downMean");
-        requireNonNegative(params.downCV, "downCV");
+        requireCv(params.upSpellDist, params.upCV, "upCV");
+        requireCv(params.downSpellDist, params.downCV, "downCV");
 
         if (params.outageMode == SimParams.OutageMode.COHORT) {
             requirePositive(params.cohortPeriod, "cohortPeriod");
             if (!(params.cohortFraction > 0 && params.cohortFraction <= 1))
                 throw new IllegalArgumentException("cohortFraction must be in (0, 1], got " + params.cohortFraction);
-            requireNonNegative(params.cohortCV, "cohortCV");
+            requireCv(params.downSpellDist, params.cohortCV, "cohortCV");
         }
 
         if (edges.isEmpty()) throw new IllegalArgumentException("edges must not be empty");
@@ -151,39 +159,33 @@ public class OutageController extends SimEntity {
 
     // ----------------------------------------------------------------------------- draws
 
-    /** Exponential link-up spell duration for one edge: its own Poisson drop process at rate
-     *  {@code p.dropRateOfEdge(edge)} — every edge has its own drop probability. */
+    /** Link-up spell for one edge with mean 1 / {@code p.dropRateOfEdge(edge)} — every edge has
+     *  its own drop probability (exponential by default: a Poisson drop process). */
     private double drawUpSpell(int edge) {
         double mean = 1.0 / Math.max(1e-9, p.dropRateOfEdge(edge));
-        return expDraw(mean);
+        return p.upSpellDist.draw(rng, mean, p.upCV);
     }
 
-    /** Log-normal down-spell for one edge with its own mean {@code p.downMeanOfEdge(edge)}
+    /** Down-spell for one edge with its own mean {@code p.downMeanOfEdge(edge)}
      *  (wide cv => scattered reconnection). */
     private double drawDownSpell(int edge) {
-        return lognormalDraw(p.downMeanOfEdge(edge), Math.max(0.01, p.downCV));
+        return p.downSpellDist.draw(rng, p.downMeanOfEdge(edge), p.downCV);
     }
 
-    /** Log-normal down-spell with the cohort's small cv (light-tailed => aligned reconnection).
+    /** Down-spell with the cohort's small cv (light-tailed => aligned reconnection).
      *  Storms are fleet-wide events, so the per-edge down-mean spread does not apply. */
     private double drawDownSpellCohort() {
-        return lognormalDraw(p.downMean, Math.max(0.01, p.cohortCV));
-    }
-
-    private double expDraw(double mean) {
-        double u = rng.nextDouble();
-        if (u <= 0.0) u = 1e-12;
-        return Math.max(1e-6, -mean * Math.log(u));
-    }
-
-    private double lognormalDraw(double mean, double cv) {
-        double sigma2 = Math.log(1.0 + cv * cv);
-        double mu = Math.log(Math.max(1e-9, mean)) - sigma2 / 2.0;
-        double z = rng.nextGaussian();
-        return Math.max(1e-6, Math.exp(mu + Math.sqrt(sigma2) * z));
+        return p.downSpellDist.draw(rng, p.downMean, p.cohortCV);
     }
 
     // ------------------------------------------------------------------------ validation
+
+    private static void requireCv(SpellDistribution dist, double cv, String name) {
+        if (!dist.acceptsCv(cv))
+            throw new IllegalArgumentException(name + " must be finite and >= 0"
+                    + (dist == SpellDistribution.UNIFORM ? " and <= 0.577 (1/sqrt(3)) for UNIFORM" : "")
+                    + ", got " + cv);
+    }
 
     private static void requirePositive(double value, String name) {
         if (!Double.isFinite(value) || value <= 0)
