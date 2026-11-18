@@ -9,11 +9,12 @@ Design (see docs/STATISTICS.md):
     (common random numbers), so every policy comparison is PAIRED by seed;
   * per cell: mean with a Student-t 95% CI, cross-checked by a BCa bootstrap CI;
   * per (scenario, metric): Friedman test over the 4 policies (blocks = seeds), then the 6
-    pairwise comparisons with a paired t-test (primary) and a Wilcoxon signed-rank test
-    (robustness), Holm-adjusted within the family; Benjamini-Hochberg over all tests as a
-    second look; effect sizes d_z, ratio of means (log-ratio CI) and win rate;
-  * replication adequacy: the number of replications needed for a given relative precision
-    (Law & Kelton's sequential criterion, gamma/(1+gamma)).
+    pairwise comparisons on the per-seed log-ratio log(A/B): paired t-test (primary, the same
+    scale as the reported ratio and its CI) and Wilcoxon signed-rank (robustness),
+    Holm-adjusted within the family; Benjamini-Hochberg over all tests as a second look;
+    effect sizes: geometric-mean ratio with CI, d_z and win rate;
+  * replication adequacy: the number of replications needed for a given relative precision,
+    of a cell mean (Law & Kelton's criterion, gamma/(1+gamma)) and of a policy ratio.
 
 Inputs : results/runs/<scenario>/run_<scenario>_s<seed>_<policy>_run.csv   (seeds 0-4)
          results/replications/<scenario>/...                               (extra seeds)
@@ -159,22 +160,27 @@ _T_N = np.arange(2, 100_001)
 _T_Q = {}
 
 
+def n_for_half_width(s, target, alpha):
+    """Smallest n >= 2 whose Student-t half-width t(1-alpha/2; n-1) * s / sqrt(n) is <= target."""
+    if math.isnan(s) or math.isnan(target):
+        return math.nan
+    if s == 0:
+        return 2
+    if target <= 0:
+        return math.inf
+    if alpha not in _T_Q:
+        _T_Q[alpha] = stats.t.ppf(1 - alpha / 2, _T_N - 1)
+    ok = np.nonzero(_T_Q[alpha] * s / np.sqrt(_T_N) <= target)[0]
+    return int(_T_N[ok[0]]) if len(ok) else math.inf
+
+
 def required_replications(x, gamma, alpha):
     """Smallest n whose t half-width is within relative error gamma (Law & Kelton: the
     half-width must not exceed gamma/(1+gamma) of |mean|), using the pilot sd of x."""
     x = x[~np.isnan(x)]
     if len(x) < 2:
         return math.nan
-    s, m = float(x.std(ddof=1)), abs(float(x.mean()))
-    if s == 0:
-        return 2
-    if m == 0:
-        return math.inf
-    if alpha not in _T_Q:
-        _T_Q[alpha] = stats.t.ppf(1 - alpha / 2, _T_N - 1)
-    half = _T_Q[alpha] * s / np.sqrt(_T_N)
-    ok = np.nonzero(half <= gamma / (1 + gamma) * m)[0]
-    return int(_T_N[ok[0]]) if len(ok) else math.inf
+    return n_for_half_width(float(x.std(ddof=1)), gamma / (1 + gamma) * abs(float(x.mean())), alpha)
 
 
 def holm(pvals):
@@ -214,34 +220,69 @@ def better(a, b, direction):
 
 
 def paired(a, b, alpha, direction):
+    """Paired comparison of A and B over the seeds where both are defined.
+
+    Inference is on the per-seed log-ratio log(A/B) when every value is positive: policy effects
+    are multiplicative (a policy that doubles the backfill delay doubles it in a calm and in a
+    stormy replication alike), so log-ratios are far more homogeneous and closer to normal than
+    raw differences, and the test then lives on the same scale as the reported ratio and its CI.
+    Otherwise (a zero or negative value) the raw difference A - B is used. The raw-difference CI
+    and t-test p are kept in the output for reference."""
     ok = ~(np.isnan(a) | np.isnan(b))
     a, b = a[ok], b[ok]
-    d = a - b
-    n = len(d)
+    n = len(a)
     out = dict(n=n)
+    raw = t_ci(a - b, alpha)
+    out.update(diff=raw["mean"], diff_lo=raw["lo"], diff_hi=raw["hi"])
+    if n < 2:
+        out["p_t_raw"] = math.nan
+    elif raw["sd"] > 0:
+        out["p_t_raw"] = float(stats.ttest_rel(a, b).pvalue)
+    else:
+        out["p_t_raw"] = 1.0 if raw["mean"] == 0 else 0.0
+    log_scale = n >= 2 and bool(np.all(a > 0)) and bool(np.all(b > 0))
+    x, y = (np.log(a), np.log(b)) if log_scale else (a, b)
+    d = x - y
     ci = t_ci(d, alpha)
-    out.update(diff=ci["mean"], diff_lo=ci["lo"], diff_hi=ci["hi"])
     sd = ci["sd"]
+    out["scale"] = "log" if log_scale else "raw"
     if n < 2:
         out.update(p_t=math.nan, p_w=math.nan, p_sw=math.nan, dz=math.nan)
     elif np.all(d == 0):
         out.update(p_t=1.0, p_w=1.0, p_sw=math.nan, dz=0.0)
     else:
-        out["p_t"] = float(stats.ttest_rel(a, b).pvalue) if sd > 0 else 0.0
-        out["p_w"] = float(stats.wilcoxon(d, zero_method="wilcox").pvalue) if np.any(d != 0) else 1.0
+        out["p_t"] = float(stats.ttest_1samp(d, 0.0).pvalue) if sd > 0 else 0.0
+        out["p_w"] = float(stats.wilcoxon(d, zero_method="wilcox").pvalue)
         out["p_sw"] = float(stats.shapiro(d).pvalue) if n >= 3 and sd > 0 else math.nan
         out["dz"] = ci["mean"] / sd if sd > 0 else math.copysign(math.inf, ci["mean"])
-    if n >= 2 and np.all(a > 0) and np.all(b > 0):
-        lr = t_ci(np.log(a / b), alpha)
-        out.update(ratio=math.exp(lr["mean"]), ratio_lo=math.exp(lr["lo"]) if not math.isnan(lr["lo"]) else math.nan,
-                   ratio_hi=math.exp(lr["hi"]) if not math.isnan(lr["hi"]) else math.nan)
+    if log_scale:
+        out.update(ratio=math.exp(ci["mean"]),
+                   ratio_lo=math.exp(ci["lo"]) if not math.isnan(ci["lo"]) else math.nan,
+                   ratio_hi=math.exp(ci["hi"]) if not math.isnan(ci["hi"]) else math.nan,
+                   ratio_half=math.exp(ci["half"]) - 1 if not math.isnan(ci["half"]) else math.nan,
+                   n_req_5=n_for_half_width(sd, math.log(1.05), alpha),
+                   n_req_10=n_for_half_width(sd, math.log(1.10), alpha))
     else:
-        out.update(ratio=math.nan, ratio_lo=math.nan, ratio_hi=math.nan)
+        out.update(ratio=math.nan, ratio_lo=math.nan, ratio_hi=math.nan, ratio_half=math.nan,
+                   n_req_5=math.nan, n_req_10=math.nan)
     out["win"] = float(better(a, b, direction).mean()) if n else math.nan
-    va, vb, vd = (float(np.var(v, ddof=1)) if n > 1 else math.nan for v in (a, b, d))
-    out["corr"] = float(np.corrcoef(a, b)[0, 1]) if n > 2 and va > 0 and vb > 0 else math.nan
-    out["crn_gain"] = (va + vb) / vd if n > 1 and vd > 0 else math.nan
+    vx, vy, vd = (float(np.var(v, ddof=1)) if n > 1 else math.nan for v in (x, y, d))
+    out["corr"] = float(np.corrcoef(x, y)[0, 1]) if n > 2 and vx > 0 and vy > 0 else math.nan
+    out["crn_gain"] = (vx + vy) / vd if n > 1 and vd > 0 else math.nan
     return out
+
+
+def favours(f, first, direction):
+    """True when the point estimate of comparison f says policy `first` beats the other one."""
+    if f["scale"] == "log":
+        eff = math.log(f["ratio"]) if f["ratio"] > 0 else math.nan
+    else:
+        eff = f["diff"]
+    if math.isnan(eff):
+        return False
+    if f["a"] != first:
+        eff = -eff
+    return eff < 0 if direction == "min" else eff > 0
 
 
 def friedman(data):
@@ -291,7 +332,8 @@ def analyse(runs, alpha):
             for f, h, hw in zip(family, adj, adj_w):
                 f["p_t_holm"], f["p_w_holm"] = float(h), float(hw)
             pairs.extend(family)
-            # winner: best mean; policies whose paired difference to it is not significant tie with it
+            # winner: best mean; a policy ties with it unless both paired tests (t and Wilcoxon on
+            # the log-ratios, Holm) show the best one significantly better, in the direction of the means
             valid = [p for p in POLICIES if not math.isnan(means[p])]
             if not valid:
                 continue
@@ -300,7 +342,8 @@ def analyse(runs, alpha):
             tied = []
             for p in ranked[1:]:
                 f = next(f for f in family if {f["a"], f["b"]} == {best, p})
-                if math.isnan(f["p_t_holm"]) or f["p_t_holm"] >= alpha:
+                robust = all(not math.isnan(f[k]) and f[k] < alpha for k in ("p_t_holm", "p_w_holm"))
+                if not robust or not favours(f, best, direction):
                     tied.append(p)
             winners.append(dict(scenario=sc, metric=key, best=best, tied="+".join(tied),
                                 ranking=" > ".join(ranked), friedman_p=fr["p"]))
@@ -389,7 +432,8 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
              f"Confidence level {conf}%, α = {alpha}. Method: [`docs/STATISTICS.md`](../docs/STATISTICS.md).\n")
     L.append("Cells show **mean [t-CI]** over replications; all policy comparisons are paired by seed "
              "(common random numbers). ✓ = best mean and significantly better than every other policy "
-             "(Holm-adjusted paired t-test); policies in *italics* tie with the best.\n")
+             "(paired t-test and Wilcoxon signed-rank on the per-seed log-ratio, both Holm-adjusted); "
+             "policies in *italics* are not robustly different from the best.\n")
 
     # 1. per-scenario tables
     L.append("## 1. Means with confidence intervals\n")
@@ -436,9 +480,10 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
     L.append("")
 
     # 3. pairwise ratios for the headline metrics
-    L.append("## 3. Pairwise comparisons (ratio of means A/B, paired by seed)\n")
-    L.append(f"Each entry: A/B − 1 with {conf}% CI from the paired log-ratio; p = Holm-adjusted paired t-test "
-             "(Wilcoxon signed-rank in brackets); win = share of replications in which A beats B.\n")
+    L.append("## 3. Pairwise comparisons (ratio A/B, paired by seed)\n")
+    L.append(f"Each entry: A/B − 1, the geometric mean of the per-seed ratios, with its {conf}% CI; p = Holm-adjusted "
+             "paired t-test on log(A/B) (Wilcoxon signed-rank on the same log-ratios in brackets); d_z = mean / sd "
+             "of the log-ratios; win = share of replications in which A beats B.\n")
     for k in HEADLINE:
         L.append(f"### {METRIC[k][1]}\n")
         L.append("| scenario | A vs B | A/B − 1 [CI] | p (Wilcoxon) | d_z | win(A) |")
@@ -471,8 +516,11 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
 
     # 5. replication adequacy
     L.append("## 5. Replication adequacy\n")
-    L.append("Largest relative CI half-width over the four policies, and the replications that the worst "
-             "cell would need for ±5% / ±10% relative precision (Law & Kelton criterion).\n")
+    L.append("### 5.1 Absolute level of a cell\n")
+    L.append("Largest relative CI half-width of a cell mean over the four policies, and the replications that "
+             "the worst cell would need for ±5% / ±10% relative precision (Law & Kelton criterion). The level "
+             "varies a lot between replications because the number and length of outages do, so these "
+             "numbers are large; the policy comparisons below are paired and far more precise.\n")
     L.append("| scenario | " + " | ".join(METRIC[k][1] for k in HEADLINE) + " |")
     L.append("|---|" + "---|" * len(HEADLINE))
     for sc in scenarios:
@@ -485,6 +533,25 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
             row.append(f"±{rel * 100:.1f}% (n₅={count(n5)}, n₁₀={count(n10)})" if not math.isnan(rel) else "—")
         L.append(f"| {sc} | " + " | ".join(row) + " |")
     L.append("")
+    L.append("### 5.2 Policy comparisons\n")
+    L.append(f"Relative half-width of the {conf}% CI of a ratio A/B over the 6 pairs: median, worst, and the "
+             "replications the worst pair would need for ±10%. A wide interval on a ratio close to 1 "
+             "only means that the two policies are hard to tell apart on that metric.\n")
+    L.append("| scenario | " + " | ".join(METRIC[k][1] for k in HEADLINE) + " |")
+    L.append("|---|" + "---|" * len(HEADLINE))
+    for sc in scenarios:
+        row = []
+        for k in HEADLINE:
+            fam = [f for f in pairs if f["scenario"] == sc and f["metric"] == k and not math.isnan(f["ratio_half"])]
+            if not fam:
+                row.append("—")
+                continue
+            halves = [f["ratio_half"] for f in fam]
+            worst = max(fam, key=lambda f: f["ratio_half"])
+            row.append(f"±{np.median(halves) * 100:.1f}% · worst ±{worst['ratio_half'] * 100:.1f}% "
+                       f"(n₁₀={count(worst['n_req_10'])})")
+        L.append(f"| {sc} | " + " | ".join(row) + " |")
+    L.append("")
 
     # 6. assumptions and CRN
     L.append("## 6. Assumption checks and common random numbers\n")
@@ -492,15 +559,15 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
     disagree = [f for f in pairs if not math.isnan(f["p_t_holm"]) and not math.isnan(f["p_w_holm"])
                 and (f["p_t_holm"] < alpha) != (f["p_w_holm"] < alpha)]
     gains = [f["crn_gain"] for f in pairs if not math.isnan(f["crn_gain"])]
-    L.append(f"* Shapiro–Wilk on the paired differences: normality is rejected at α = {alpha} in "
-             f"{sum(p < alpha for p in sw)} of {len(sw)} comparisons; for those, the Wilcoxon result and the BCa "
-             "bootstrap CI (`analysis/stats/cells.csv`) are the ones to quote.")
+    L.append(f"* Shapiro–Wilk on the paired log-ratios: normality is rejected at α = {alpha} in "
+             f"{sum(p < alpha for p in sw)} of {len(sw)} comparisons; for those, read the Wilcoxon result next to "
+             "the t-test, and the BCa bootstrap CI (`analysis/stats/cells.csv`) next to the t-CI of a cell.")
     L.append(f"* Paired t-test and Wilcoxon disagree on significance (Holm) in {len(disagree)} of {len(pairs)} comparisons"
              + (": " + ", ".join(f"{d['scenario']}/{d['metric']}/{d['a']}-{d['b']}" for d in disagree[:12])
                 + (" …" if len(disagree) > 12 else "") if disagree else "") + ".")
     if gains:
         g = np.array(gains)
-        L.append(f"* Variance reduction from common random numbers, (Var A + Var B) / Var(A − B): median "
+        L.append(f"* Variance reduction from common random numbers, (Var log A + Var log B) / Var log(A/B): median "
                  f"{np.median(g):.1f}×, interquartile range {np.percentile(g, 25):.1f}–{np.percentile(g, 75):.1f}× "
                  f"over {len(g)} comparisons — the paired design needs that many times fewer replications than "
                  "independent sampling for the same precision.")
@@ -653,7 +720,8 @@ def main(argv=None):
     print(f"statistics    : {stats_dir}{'' if args.no_figures else ' + analysis/figures/stats_*.png'}")
     print(f"report tables : {md}")
     print()
-    print("best policy per scenario (= : statistically tied with the best, Holm-adjusted paired t-test)")
+    print("best policy per scenario (= : not robustly different from the best; paired t and Wilcoxon "
+          "on log-ratios, Holm)")
     for k in HEADLINE:
         print(f"  {METRIC[k][1]}:")
         for w in (w for w in winners if w["metric"] == k):

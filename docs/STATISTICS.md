@@ -38,10 +38,22 @@ SelfTest B1 kiểm chứng điều này ở mỗi lần build. Đây là kỹ th
 (common random numbers, CRN).
 
 Vì vậy so sánh hai chính sách A, B là so sánh **ghép cặp theo seed**: với mỗi seed r,
-`D_r = Y_r(A) − Y_r(B)`, rồi suy luận trên dãy `D_1..D_n`. Vì
-`Var(D) = Var(A) + Var(B) − 2·Cov(A, B)` và CRN làm `Cov(A, B) > 0`, phương sai của hiệu nhỏ
-hơn nhiều so với hai mẫu độc lập. `STATS.md` §6 báo cáo hệ số lợi
-`(Var A + Var B) / Var(D)`: đó là số lần lặp mà thiết kế độc lập cần thêm để đạt cùng độ chính xác.
+`D_r = log Y_r(A) − log Y_r(B) = log(Y_r(A) / Y_r(B))`, rồi suy luận trên dãy `D_1..D_n`.
+Vì `Var(D) = Var(log A) + Var(log B) − 2·Cov(log A, log B)` và CRN làm hiệp phương sai dương,
+phương sai của D nhỏ hơn nhiều so với khi hai mẫu độc lập. `STATS.md` §6 báo cáo hệ số lợi
+`(Var log A + Var log B) / Var(D)`, tức là số lần thiết kế độc lập phải chạy nhiều hơn để đạt
+cùng độ chính xác.
+
+**Vì sao dùng thang log.** Tác động của chính sách có dạng nhân. Ví dụ New-first làm độ trễ bù
+dài gấp khoảng 7 lần FIFO, dù lần lặp đó có ít hay nhiều sự cố mất kết nối. Mức tuyệt đối của
+chỉ số thì dao động rất mạnh giữa các lần lặp (§4), nên hiệu thô `Y(A) − Y(B)` vừa lệch vừa có
+phương sai không đều, còn log-tỷ số đồng đều và gần chuẩn hơn nhiều. Trên dữ liệu thử, so với
+hiệu thô, thang log giảm số so sánh bị Shapiro–Wilk bác bỏ tính chuẩn và số lần t-test với
+Wilcoxon cho kết luận khác nhau. Thang log cũng khớp với cách báo cáo hiệu ứng dưới dạng tỷ số
+(§5): khoảng tin cậy và kiểm định nằm trên **cùng một thang**, nên khoảng tin cậy không chứa 1
+khi và chỉ khi t-test có ý nghĩa. Mọi chỉ số ở đây đều dương. Nếu có giá trị bằng 0, script tự
+chuyển sang hiệu thô và ghi `scale = raw` trong `pairwise.csv`. Hiệu thô kèm p của nó vẫn được
+giữ trong file (`diff`, `diff_lo`, `diff_hi`, `p_t_raw`) để đối chiếu.
 
 Các bước quét (ρ ∈ {0.4, 0.7, 0.9, 1.1}, N ∈ {4, 6, 10, 16}) cũng ghép cặp theo seed giữa
 các mức. Ghép cặp luôn hợp lệ khi cặp được định nghĩa trước khi xem dữ liệu; mức tương quan chỉ
@@ -63,29 +75,39 @@ Lý do không dừng ở 5 seed:
 Đủ hay chưa được kiểm bằng tiêu chí độ chính xác tương đối của Law & Kelton: với sai số tương đối
 mục tiêu γ, cần nửa độ rộng khoảng tin cậy `h ≤ γ/(1+γ)·|Ȳ|`, nên số lần lặp cần là
 `n*(γ) = min{ n : t(0.975; n−1)·s/√n ≤ γ/(1+γ)·|Ȳ| }` với s ước lượng từ chính các lần lặp đã có.
-`STATS.md` §5 báo cáo độ rộng tương đối đạt được và n* cho γ = 5% và 10%. Ô nào n* > 30 thì kết
-luận về giá trị tuyệt đối của ô đó kém chính xác hơn mục tiêu, nhưng so sánh ghép cặp vẫn dùng được
-vì phương sai của hiệu nhỏ hơn nhiều.
+`STATS.md` §5.1 báo cáo độ rộng tương đối đạt được và n* cho γ = 5% và 10%.
+
+Mức tuyệt đối của một ô dao động rất mạnh, vì số lần và độ dài các đợt mất kết nối thay đổi
+theo seed, nên n* của §5.1 thường lớn hơn nhiều so với 30. Điều đó chỉ có nghĩa là giá trị tuyệt
+đối của ô (ví dụ "độ trễ bù trung bình của FIFO ở base") có sai số tương đối lớn. Câu hỏi chính
+của đề bài là so sánh các chính sách, và với câu hỏi đó thì độ chính xác cần xét là của tỷ số
+A/B. `STATS.md` §5.2 báo cáo nửa độ rộng tương đối của khoảng tin cậy tỷ số (`e^h − 1`, với h là
+nửa độ rộng trên thang log), cùng số lần lặp mà cặp kém chính xác nhất cần để đạt ±10%
+(`n = min{ n : t(0.975; n−1)·s_D/√n ≤ log 1.1 }`).
 
 ## 5. Ước lượng khoảng
 
-* **Trung bình**: `Ȳ ± t(0.975; n−1)·s/√n`. Chỉ số của một lần chạy là trung bình hoặc phân vị
-  của rất nhiều gói, nên phân phối giữa các lần chạy gần chuẩn (định lý giới hạn trung tâm).
+* **Trung bình**: `Ȳ ± t(0.975; n−1)·s/√n`. Các lần lặp độc lập và cùng phân phối, nên theo
+  định lý giới hạn trung tâm, trung bình của 30 lần lặp có phân phối xấp xỉ chuẩn. Bản thân giá trị
+  của từng lần lặp thì có thể lệch phải, vì một vài seed gặp đợt mất kết nối dài, nên cần thêm kiểm
+  tra chéo ở dòng dưới.
 * **Kiểm tra chéo**: khoảng bootstrap BCa (9999 mẫu lặp, seed cố định nên kết quả tái lập được),
-  cột `boot_lo`, `boot_hi` của `analysis/stats/cells.csv`. Với chỉ số lệch (p95, New-first) nên
-  trích khoảng này.
+  cột `boot_lo`, `boot_hi` của `analysis/stats/cells.csv`. Khi khoảng t và khoảng BCa lệch nhau
+  rõ (chỉ số p95, New-first) thì nên trích khoảng BCa. Khoảng t có cận dưới âm cho một đại lượng
+  luôn dương là dấu hiệu của độ lệch đó.
 * **Tỷ số giữa hai chính sách**: "A chậm hơn B x%" được ước lượng bằng trung bình theo cặp của
-  `log(Y_A / Y_B)` với khoảng t, rồi lấy mũ: đó là tỷ số trung bình nhân và khoảng tin cậy của nó.
-  Cách này tránh chia hai trung bình độc lập và cho khoảng đối xứng trên thang log.
+  `D = log(Y_A / Y_B)` với khoảng t, rồi lấy mũ: đó là trung bình nhân của các tỷ số theo seed,
+  kèm khoảng tin cậy. Cách này tránh chia hai trung bình độc lập và cho khoảng đối xứng trên thang
+  log.
 
 ## 6. Kiểm định
 
 | Bước | Kiểm định | Vì sao |
 |---|---|---|
 | Có khác biệt giữa 4 chính sách không | Friedman (khối = seed), kèm Kendall's W | phi tham số, đúng cho thiết kế khối ngẫu nhiên đầy đủ |
-| Từng cặp (6 cặp) | paired t-test | khớp với việc báo cáo trung bình; vững với n = 30 |
-| Kiểm tra độ vững | Wilcoxon signed-rank | không cần giả định chuẩn |
-| Giả định chuẩn của hiệu | Shapiro–Wilk trên D | nếu bác bỏ, ưu tiên Wilcoxon và khoảng BCa |
+| Từng cặp (6 cặp) | paired t-test trên `D = log(A/B)` | cùng thang với tỷ số và khoảng tin cậy của nó (§3, §5); vững với n = 30 |
+| Kiểm tra độ vững | Wilcoxon signed-rank trên cùng D | không cần giả định chuẩn |
+| Giả định chuẩn của D | Shapiro–Wilk | nếu bác bỏ, đọc kèm Wilcoxon và khoảng BCa |
 | Đa so sánh | Holm–Bonferroni trong mỗi họ 6 cặp | kiểm soát xác suất sai loại I của cả họ ở 5% |
 | Góc nhìn thứ hai | Benjamini–Hochberg trên toàn bộ 480 so sánh | kiểm soát tỷ lệ phát hiện sai (FDR) |
 
@@ -96,9 +118,13 @@ Một **họ** là 6 so sánh cặp của một chỉ số trong một kịch b�
 (tỷ lệ seed mà A tốt hơn B). Có ý nghĩa thống kê không có nghĩa là quan trọng trong thực tế: một
 khác biệt 1% có thể có p rất nhỏ nhờ CRN, nên luôn đọc kèm tỷ số.
 
-**Quy tắc chọn chính sách tốt nhất**: chính sách có trung bình tốt nhất theo chiều của chỉ số;
-chính sách nào có hiệu với nó **không** có ý nghĩa (p Holm của paired t ≥ 0.05) thì được coi là
-hòa. Dấu ✓ trong bảng nghĩa là chính sách tốt nhất hơn hẳn cả ba chính sách còn lại.
+**Quy tắc chọn chính sách tốt nhất**: lấy chính sách có trung bình tốt nhất theo chiều của chỉ
+số. Một chính sách khác chỉ bị coi là **kém hơn** nó khi cả paired t-test lẫn Wilcoxon trên D đều
+có ý nghĩa sau hiệu chỉnh Holm, và ước lượng điểm cùng chiều với thứ tự trung bình. Mọi trường
+hợp còn lại được coi là **không phân biệt được** (in nghiêng trong bảng). Yêu cầu hai kiểm định
+cùng đồng ý là cách thận trọng: một kết luận phụ thuộc vào giả định chuẩn hoặc vào vài seed
+ngoại lai sẽ không được tính là thắng. Dấu ✓ nghĩa là chính sách tốt nhất hơn hẳn cả ba chính
+sách còn lại theo quy tắc này.
 
 ## 7. Giới hạn
 
