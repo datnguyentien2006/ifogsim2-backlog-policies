@@ -84,6 +84,11 @@ public class SimParams {
      *  {@link #downCV}, storm members mean {@link #downMean} with cv {@link #cohortCV}.
      *  LOGNORMAL = the published model. */
     public SpellDistribution downSpellDist = SpellDistribution.LOGNORMAL;
+    /** COHORT mode: true = edges drop only in storms (docs/MODEL.md §5; the web engine does this).
+     *  false (default, reproduces the published results) = a storm member, once reconnected, also
+     *  drops on its own SCATTERED clock, and a later storm that hits it while that clock is
+     *  pending starts a second clock for the same edge. */
+    public boolean cohortStormsOnly = false;
 
     // ---------------- policy knobs (equal inputs for every policy) ----------------
     /** Rate-limit policy: fixed backfill rate R = rateLimitFactor * centerCapacity (units/s),
@@ -191,6 +196,7 @@ public class SimParams {
         p.outageRateSpread = outageRateSpread; p.outageDownSpread = outageDownSpread;
         p.cohortPeriod = cohortPeriod; p.cohortFraction = cohortFraction; p.cohortCV = cohortCV;
         p.upSpellDist = upSpellDist; p.upCV = upCV; p.downSpellDist = downSpellDist;
+        p.cohortStormsOnly = cohortStormsOnly;
         p.rateLimitFactor = rateLimitFactor; p.backfillQuotaFactor = backfillQuotaFactor;
         p.tupleNwLength = tupleNwLength; p.tupleCpuLength = tupleCpuLength;
         p.uplinkBandwidth = uplinkBandwidth; p.downlinkBandwidth = downlinkBandwidth;

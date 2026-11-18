@@ -30,7 +30,10 @@ import backfill.util.SpellDistribution;
  *       {@code cohortFraction} of the (currently connected) edges drops AT THE SAME INSTANT; each
  *       member's down-spell is log-normal with the same mean but a small cv ({@code cohortCV}),
  *       so several edges restore their links within a short window of each other — a realistic
- *       simultaneous-reconnection burst that piles backlog onto the scheduler at once.</li>
+ *       simultaneous-reconnection burst that piles backlog onto the scheduler at once. By default
+ *       (the published model) a member that has reconnected then also drops on its own SCATTERED
+ *       clock, and a storm that hits an edge whose clock is still pending starts a second clock
+ *       for it; {@link SimParams#cohortStormsOnly} keeps the drops to the storms.</li>
  * </ul>
  *
  * <p>Exponential and log-normal are the defaults: {@link SimParams#upSpellDist} and
@@ -66,12 +69,14 @@ public class OutageController extends SimEntity {
         Objects.requireNonNull(params.downSpellDist, "downSpellDist");
 
         // Per-edge up/down spells: SCATTERED, and COHORT members once their storm is over.
-        requireNonNegative(params.dropRatePerEdge, "dropRatePerEdge");
-        requireUnitRange(params.outageRateSpread, "outageRateSpread");
-        requireUnitRange(params.outageDownSpread, "outageDownSpread");
+        if (params.outageMode == SimParams.OutageMode.SCATTERED || !params.cohortStormsOnly) {
+            requireNonNegative(params.dropRatePerEdge, "dropRatePerEdge");
+            requireUnitRange(params.outageRateSpread, "outageRateSpread");
+            requireUnitRange(params.outageDownSpread, "outageDownSpread");
+            requireCv(params.upSpellDist, params.upCV, "upCV");
+            requireCv(params.downSpellDist, params.downCV, "downCV");
+        }
         requirePositive(params.downMean, "downMean");
-        requireCv(params.upSpellDist, params.upCV, "upCV");
-        requireCv(params.downSpellDist, params.downCV, "downCV");
 
         if (params.outageMode == SimParams.OutageMode.COHORT) {
             requirePositive(params.cohortPeriod, "cohortPeriod");
@@ -131,7 +136,10 @@ public class OutageController extends SimEntity {
             send(getId(), drawDownSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), false));
         } else {
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_UP);
-            send(getId(), drawUpSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
+            // COHORT + cohortStormsOnly: a reconnected storm member stays up until a later storm.
+            if (p.outageMode == SimParams.OutageMode.SCATTERED || !p.cohortStormsOnly) {
+                send(getId(), drawUpSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
+            }
         }
     }
 
