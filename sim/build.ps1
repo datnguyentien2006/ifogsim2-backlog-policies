@@ -1,10 +1,13 @@
 # Build script: compiles the iFogSim2 vendor sources (once, cached) and then our backfill
-# simulator into sim\build. Uses the repo-local JDK 21 (upstream iFogSim2 needs List.getLast()).
+# simulator into sim\build. Needs JDK 21+ (upstream iFogSim2 needs List.getLast()): the
+# repo-local tools\jdk-21.0.12.1+1 if present, otherwise JAVA_HOME, otherwise javac on PATH.
 $ErrorActionPreference = "Stop"
 
 $repo     = Split-Path -Parent $PSScriptRoot
 $bin      = Join-Path $repo "tools\jdk-21.0.12.1+1\bin"
+if (-not (Test-Path (Join-Path $bin "javac.exe")) -and $env:JAVA_HOME) { $bin = Join-Path $env:JAVA_HOME "bin" }
 $javac    = Join-Path $bin "javac.exe"
+if (-not (Test-Path $javac)) { $javac = (Get-Command javac -ErrorAction Stop).Source }
 $build    = Join-Path $repo "sim\build"
 $clVendor = Join-Path $build "vendor"
 $clSim    = Join-Path $build "classes"

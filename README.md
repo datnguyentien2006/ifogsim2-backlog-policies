@@ -36,9 +36,11 @@ web/                 visual demo + in-browser batch compare (pure JS, no depende
     index.html / style.css / engine.js / app.js
     test/engine_test.js    headless parity + conservation test (node web/test/engine_test.js)
     WEB.md lives in docs/ — full guide: knobs, canvas, charts, batch mode, parity contract
-analysis/            Python scripts that aggregate results/runs into tables/figures
-results/runs/        CSVs: <scenario>/run_<scenario>_s<seed>_<policy>{_run,_tick}.csv
-docs/                MODEL.md (the model spec), ADD_POLICY.md, SELFTEST.md, REPORT.md
+analysis/            Python scripts that aggregate results into tables/figures; stats.py = statistical analysis
+results/runs/        CSVs: <scenario>/run_<scenario>_s<seed>_<policy>{_run,_tick}.csv (seeds 0-4)
+results/replications/  extra replications for the statistics (seeds 5-19, run CSVs only)
+docs/                MODEL.md (the model spec), ADD_POLICY.md, SELFTEST.md, REPORT.md,
+                     STATISTICS.md + REPORT_VI.md (statistical method and report, Vietnamese)
 tools/jdk-21...      local JDK 21 (upstream iFogSim2 needs SequencedCollection API)
 ```
 
@@ -84,6 +86,19 @@ Scenario slices of the experiment grid (all one-factor-at-a-time from `base`):
 * `results/runs/<scenario>/...` — summaries in `*_run.csv`, 0.1 s time series in `*_tick.csv`.
 
 Report with measured conclusions: `docs/REPORT.md`.
+
+Statistical report (Vietnamese): `docs/REPORT_VI.md` re-analyses the grid with **20 replications
+per cell** (seeds 0-19): confidence intervals, paired comparisons under common random numbers,
+Friedman and Holm-adjusted pairwise tests. Method: `docs/STATISTICS.md`; generated tables:
+`analysis/STATS.md`; figures: `analysis/figures/stats_*.png`.
+
+```powershell
+pip install -r analysis/requirements.txt
+python analysis/stats.py                    # tables, CSVs and figures from results/runs + results/replications
+.\sim\run.ps1 grid -FirstSeed 5 -Seeds 15 -Jobs 2 -NoTicks -OutDir results/replications   # regenerate the replications
+.\sim\demo.ps1                              # demo: print the verdicts from the committed results
+.\sim\demo.ps1 -Mode quick -Scenario storm  # demo: run 4 policies x 10 seeds live, then analyse
+```
 
 See `docs/MODEL.md` for the exact model semantics, `docs/WEB.md` for the visual demo
 and `docs/ADD_POLICY.md` to add a policy. An external bug-report review (15 findings) was
