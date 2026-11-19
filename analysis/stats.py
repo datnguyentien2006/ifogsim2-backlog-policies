@@ -581,6 +581,23 @@ def markdown(runs, cells, pairs, fried, winners, sweeps, alpha, out_md):
 
 # ----------------------------------------------------------------------------- figures
 
+def plain_log_axis(ax, axis):
+    """Log axis labelled with plain numbers on a 1-2-5 grid instead of 10^x, without minor labels."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter
+    lo, hi = ax.get_xlim() if axis == "x" else ax.get_ylim()
+    if not (lo > 0 and hi > lo):
+        return
+    ticks = [m * 10.0 ** e for e in range(math.floor(math.log10(lo)), math.ceil(math.log10(hi)) + 1)
+             for m in (1, 2, 5) if lo <= m * 10.0 ** e <= hi]
+    a = ax.xaxis if axis == "x" else ax.yaxis
+    if len(ticks) > 9:
+        ticks = [t for t in ticks if f"{t:g}".lstrip("0.").startswith("1")]
+    if len(ticks) >= 2:
+        a.set_major_locator(FixedLocator(ticks))
+    a.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}" if v >= 1000 else f"{v:g}"))
+    a.set_minor_formatter(NullFormatter())
+
+
 def figures(runs, cells, alpha, figdir):
     import matplotlib
     matplotlib.use("Agg")
@@ -614,6 +631,8 @@ def figures(runs, cells, alpha, figdir):
             ax.set_yscale("log")
         ax.set_title(f"{label}: mean and {conf}% CI over replications ({'lower' if direction == 'min' else 'higher'} is better)",
                      fontsize=10)
+        if ax.get_yscale() == "log":
+            plain_log_axis(ax, "y")
         ax.grid(alpha=0.3, which="both", axis="y")
         ax.legend(fontsize=8, ncol=4)
         fig.tight_layout()
@@ -637,6 +656,7 @@ def figures(runs, cells, alpha, figdir):
             ax.set_title(f"{label} ({unit})", fontsize=9)
             if unit in ("s", "units"):
                 ax.set_yscale("log")
+                plain_log_axis(ax, "y")
             ax.grid(alpha=0.3, which="both")
         axes[0].legend(fontsize=7)
         fig.suptitle(f"Sweep over {'N' if sweep == 'N' else 'ρ'}: mean with {conf}% CI band", fontsize=10)
@@ -667,6 +687,7 @@ def figures(runs, cells, alpha, figdir):
             ax.errorbar(xs, ys, xerr=[lo, hi], fmt="o", ms=3.5, capsize=2, color=COLOR[p], label=NICE[p])
         ax.axvline(1.0, color="#555", lw=0.8, ls="--")
         ax.set_xscale("log")
+        plain_log_axis(ax, "x")
         ax.set_title(f"{METRIC[key][1]}\nratio to FIFO ({conf}% CI)", fontsize=9)
         ax.grid(alpha=0.3, which="both", axis="x")
     axes[0].set_yticks(range(len(scenarios)))
