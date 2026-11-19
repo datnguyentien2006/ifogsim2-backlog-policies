@@ -8,6 +8,12 @@ All numbers below are **means over 5 seeds** per (scenario × policy), 600 s dat
 each; the raw CSVs are in `results/runs/<scenario>/`, the pivots in
 [`../analysis/tables.md`](../analysis/tables.md), the figures in [`../analysis/figures/`](../analysis/figures/).
 
+> **Statistical follow-up.** The 5-seed means below are point estimates. [`REPORT_VI.md`](REPORT_VI.md)
+> (Vietnamese) re-analyses the same scenarios with 20 replications per cell, confidence intervals and
+> paired significance tests ([method](STATISTICS.md)); where the two differ, the statistical report is
+> the one to quote. Note on §4: edge 0 has the highest drop rate but the **shortest** outages
+> (×0.85), and edge N−1 the longest (×1.15), as in `SimParams.downMeanOfEdge` and `MODEL.md`.
+
 ---
 
 ## 1. Problem

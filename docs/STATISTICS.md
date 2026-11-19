@@ -1,6 +1,6 @@
 # Phương pháp thống kê cho bộ kết quả đo
 
-Tài liệu này mô tả cách `analysis/stats.py` biến 1200 lần chạy mô phỏng thành các kết luận
+Tài liệu này mô tả cách `analysis/stats.py` biến 800 lần chạy mô phỏng thành các kết luận
 có khoảng tin cậy và kiểm định. Kết quả được sinh tự động ở [`analysis/STATS.md`](../analysis/STATS.md);
 diễn giải nằm trong [`REPORT_VI.md`](REPORT_VI.md).
 
@@ -62,15 +62,21 @@ quyết định lợi ích nhiều hay ít.
 ## 4. Số lần lặp
 
 Grid gốc có 5 seed (`results/runs`, kèm chuỗi thời gian từng tick). Bộ bổ sung
-`results/replications` chạy thêm seed 5–29 (chỉ giữ file run CSV), tổng **30 lần lặp cho mỗi ô
-kịch bản × chính sách**, 1200 lần chạy.
+`results/replications` chạy thêm seed 5–19 (chỉ giữ file run CSV), tổng **20 lần lặp cho mỗi ô
+kịch bản × chính sách**, 800 lần chạy.
 
 Lý do không dừng ở 5 seed:
 
-* với n = 5, `t(0.975; 4) = 2.776`, khoảng tin cậy rộng gấp ~1.4 lần so với n = 30
-  (`t(0.975; 29) = 2.045`) chưa kể hệ số `1/√n`;
+* với n = 5, `t(0.975; 4) = 2.776` so với `t(0.975; 19) = 2.093` ở n = 20, và hệ số `1/√n`
+  gấp đôi, nên khoảng tin cậy rộng gấp khoảng 2.65 lần;
 * kiểm định Wilcoxon hai phía với n = 5 có p nhỏ nhất là `2/2⁵ = 0.0625 > 0.05`, tức là
-  **không bao giờ** bác bỏ được giả thuyết bằng nhau, dù khác biệt lớn đến đâu.
+  **không bao giờ** bác bỏ được giả thuyết bằng nhau, dù khác biệt lớn đến đâu. Với n = 20, p nhỏ
+  nhất là `2/2²⁰ ≈ 2·10⁻⁶`.
+
+Con số 20 là mức cân bằng giữa độ chính xác và chi phí tính toán. Một lần chạy `rho1.1` cần heap
+2 GB, nên một máy 8 GB chỉ chạy được 2–3 lần song song. Độ chính xác thực tế đạt được nằm ở
+`STATS.md` §5. Muốn khoảng hẹp hơn thì chạy thêm seed (lệnh ở §8) rồi chạy lại `stats.py`: mọi
+bảng và hình tự cập nhật.
 
 Đủ hay chưa được kiểm bằng tiêu chí độ chính xác tương đối của Law & Kelton: với sai số tương đối
 mục tiêu γ, cần nửa độ rộng khoảng tin cậy `h ≤ γ/(1+γ)·|Ȳ|`, nên số lần lặp cần là
@@ -78,7 +84,7 @@ mục tiêu γ, cần nửa độ rộng khoảng tin cậy `h ≤ γ/(1+γ)·|�
 `STATS.md` §5.1 báo cáo độ rộng tương đối đạt được và n* cho γ = 5% và 10%.
 
 Mức tuyệt đối của một ô dao động rất mạnh, vì số lần và độ dài các đợt mất kết nối thay đổi
-theo seed, nên n* của §5.1 thường lớn hơn nhiều so với 30. Điều đó chỉ có nghĩa là giá trị tuyệt
+theo seed, nên n* của §5.1 thường lớn hơn nhiều so với 20. Điều đó chỉ có nghĩa là giá trị tuyệt
 đối của ô (ví dụ "độ trễ bù trung bình của FIFO ở base") có sai số tương đối lớn. Câu hỏi chính
 của đề bài là so sánh các chính sách, và với câu hỏi đó thì độ chính xác cần xét là của tỷ số
 A/B. `STATS.md` §5.2 báo cáo nửa độ rộng tương đối của khoảng tin cậy tỷ số (`e^h − 1`, với h là
@@ -88,7 +94,7 @@ nửa độ rộng trên thang log), cùng số lần lặp mà cặp kém chín
 ## 5. Ước lượng khoảng
 
 * **Trung bình**: `Ȳ ± t(0.975; n−1)·s/√n`. Các lần lặp độc lập và cùng phân phối, nên theo
-  định lý giới hạn trung tâm, trung bình của 30 lần lặp có phân phối xấp xỉ chuẩn. Bản thân giá trị
+  định lý giới hạn trung tâm, trung bình của n lần lặp có phân phối xấp xỉ chuẩn. Bản thân giá trị
   của từng lần lặp thì có thể lệch phải, vì một vài seed gặp đợt mất kết nối dài, nên cần thêm kiểm
   tra chéo ở dòng dưới.
 * **Kiểm tra chéo**: khoảng bootstrap BCa (9999 mẫu lặp, seed cố định nên kết quả tái lập được),
@@ -105,7 +111,7 @@ nửa độ rộng trên thang log), cùng số lần lặp mà cặp kém chín
 | Bước | Kiểm định | Vì sao |
 |---|---|---|
 | Có khác biệt giữa 4 chính sách không | Friedman (khối = seed), kèm Kendall's W | phi tham số, đúng cho thiết kế khối ngẫu nhiên đầy đủ |
-| Từng cặp (6 cặp) | paired t-test trên `D = log(A/B)` | cùng thang với tỷ số và khoảng tin cậy của nó (§3, §5); vững với n = 30 |
+| Từng cặp (6 cặp) | paired t-test trên `D = log(A/B)` | cùng thang với tỷ số và khoảng tin cậy của nó (§3, §5); vững với n = 20 |
 | Kiểm tra độ vững | Wilcoxon signed-rank trên cùng D | không cần giả định chuẩn |
 | Giả định chuẩn của D | Shapiro–Wilk | nếu bác bỏ, đọc kèm Wilcoxon và khoảng BCa |
 | Đa so sánh | Holm–Bonferroni trong mỗi họ 6 cặp | kiểm soát xác suất sai loại I của cả họ ở 5% |
@@ -142,7 +148,7 @@ sách còn lại theo quy tắc này.
 ```powershell
 pip install -r analysis/requirements.txt
 .\sim\run.ps1 grid -Seeds 5                                            # results/runs (seed 0-4, có tick CSV)
-.\sim\run.ps1 grid -FirstSeed 5 -Seeds 25 -Jobs 4 -NoTicks -OutDir results/replications
+.\sim\run.ps1 grid -FirstSeed 5 -Seeds 15 -Jobs 2 -NoTicks -OutDir results/replications
 python analysis/stats.py                                               # results/summary_runs.csv, analysis/stats/*, analysis/STATS.md, figures
 .\sim\demo.ps1                                                         # in tóm tắt kết luận
 ```

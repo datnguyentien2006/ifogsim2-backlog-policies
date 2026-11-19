@@ -8,7 +8,7 @@ param(
     [ValidateSet("results", "quick", "web")][string]$Mode = "results",
     [string]$Scenario = "base",
     [int]$Seeds = 10,
-    [int]$Jobs = 4,
+    [int]$Jobs = 2,
     [switch]$Open
 )
 $ErrorActionPreference = "Stop"

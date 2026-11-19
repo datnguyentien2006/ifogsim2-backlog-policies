@@ -11,7 +11,7 @@ repo="$(dirname "$scriptdir")"
 mode="${1:-results}"
 scenario="${2:-base}"
 seeds="${3:-10}"
-jobs="${4:-4}"
+jobs="${4:-2}"
 python="$(command -v python3 || command -v python || true)"
 
 case "$mode" in
