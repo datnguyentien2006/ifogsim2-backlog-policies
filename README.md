@@ -22,10 +22,12 @@ The outage model gives **each edge its own link-loss parameters** (project requi
 drop probability and outage duration ramp linearly around the fleet means
 (`dropRatePerEdge`, `downMean`) — edge 0 is the least reliable link, edge N−1 the most
 reliable (`outageRateSpread = 0.5`, `outageDownSpread = 0.3`; set both to 0 for the legacy
-uniform model). `storm` (COHORT) outages are fleet-wide events and ignore the spread; the storm
-regime is **storms-only** (`cohortStormsOnly = true`, the default): a reconnected edge stays up
-until a later storm picks it, so the regime is exactly "many edges reconnect together", matching
-the web mirror (see docs/MODEL.md §5).
+uniform model). `storm` (COHORT) outages are fleet-wide events and ignore the spread; the default
+storm regime is **storms-only** (`cohortStormsOnly = true`): a reconnected edge stays up until a
+later storm picks it, so the regime is exactly "many edges reconnect together". Setting
+`cohortStormsOnly = false` mixes the storm with scattered drops — a reconnected member waits
+`cohortScatterDelay` seconds (default 90 s) and then resumes its own per-edge SCATTERED clock; the
+web mirror exposes both sub-modes (see docs/MODEL.md §5).
 Both spells follow a configurable distribution (`upSpellDist`, `downSpellDist`: exponential,
 lognormal, uniform or deterministic; defaults exponential / lognormal, see docs/MODEL.md §5).
 

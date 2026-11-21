@@ -5,6 +5,8 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exit(1); };
 
 for (const cfgTweak of [
     (c) => { c.outageMode = "COHORT"; },
+    (c) => { c.outageMode = "COHORT"; c.cohortStormsOnly = false; c.cohortScatterDelay = 90; },
+    (c) => { c.outageMode = "COHORT"; c.cohortStormsOnly = false; c.cohortScatterDelay = 0; },
     (c) => { c.imbalance = "DOMINANT"; c.numEdges = 10; },
     (c) => { c.loadFactor = 1.1; },
     (c) => { c.outageMode = "COHORT"; c.loadFactor = 1.1; c.imbalance = "ZIPF"; c.numEdges = 16; }
@@ -13,7 +15,8 @@ for (const cfgTweak of [
     cfgTweak(cfg);
     cfg.simDuration = 120;
     cfg.seed = 11;
-    const label = JSON.stringify([cfg.outageMode, cfg.imbalance, cfg.loadFactor, cfg.numEdges]);
+    const label = JSON.stringify([cfg.outageMode, cfg.imbalance, cfg.loadFactor, cfg.numEdges,
+        cfg.outageMode === "COHORT" ? cfg.cohortStormsOnly : null]);
     let rows = [];
     for (const p of policyList()) {
         try {

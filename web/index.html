@@ -40,6 +40,15 @@
           <option selected>SCATTERED</option><option>COHORT</option>
         </select>
       </label>
+      <label id="cohortRow" style="display:none">COHORT mode
+        <select id="cfgCohortOnly">
+          <option value="true" selected>storms-only (cohortStormsOnly=true)</option>
+          <option value="false">storms + post-storm scattered (cohortStormsOnly=false)</option>
+        </select>
+      </label>
+      <label id="scatterRow" style="display:none">Post-storm scatter delay (s)
+        <input type="number" id="cfgScatterDelay" value="90" step="10" min="0" class="inline">
+      </label>
       <label>Seed
         <input type="number" id="cfgSeed" value="7" step="1" class="inline">
       </label>
@@ -131,7 +140,9 @@
   Model: 1 unit = 1 tuple; center token bucket = round(C·ΔT) units/tick (C = 1200 u/s, ΔT = 0.1 s);
   edge uplink 5 Mb/s; sensors start after 5 s warmup; SCATTERED = Poisson drops (rate 0.01/s) with
   lognormal outages (mean 20 s, cv 0.8); COHORT = storm every 120 s dropping 50% of edges with near-simultaneous
-  reconnection. All policies see identical queues/outages per seed.
+  reconnection (cohortStormsOnly=true, the default; cohortStormsOnly=false lets each reconnected member resume its
+  own scattered drops after a configurable post-storm delay, default 90 s).
+  All policies see identical queues/outages per seed.
 </footer>
 
 <script src="engine.js"></script>

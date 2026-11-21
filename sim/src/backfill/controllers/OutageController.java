@@ -33,9 +33,9 @@ import backfill.util.SpellDistribution;
  *       simultaneous-reconnection burst that piles backlog onto the scheduler at once. By default
  *       ({@link SimParams#cohortStormsOnly} = true) a reconnected member stays up until a later
  *       storm picks it, so the regime is exactly storms-only, one chain per edge. Setting the flag
- *       to false restores the older behaviour where a reconnected member also drops on its own
- *       SCATTERED clock, and a storm that hits an edge whose clock is still pending starts a
- *       second clock for it.</li>
+ *       to false mixes the storm with scattered drops: a reconnected member waits
+ *       {@link SimParams#cohortScatterDelay} seconds (default 90 s) and then resumes its own
+ *       per-edge SCATTERED clock.</li>
  * </ul>
  *
  * <p>Exponential and log-normal are the defaults: {@link SimParams#upSpellDist} and
@@ -53,6 +53,9 @@ public class OutageController extends SimEntity {
     private final SimParams p;
     private final List<EdgeServerDevice> edges;
     private final Random rng;
+    /** COHORT + !cohortStormsOnly: which edges were last taken down by a storm (so their first
+     *  reconnection waits {@link SimParams#cohortScatterDelay} before resuming scattered drops). */
+    private final boolean[] stormDown;
     private long moveCount = 0;
 
     public OutageController(String name, SimParams params, List<EdgeServerDevice> edges) {
@@ -60,6 +63,7 @@ public class OutageController extends SimEntity {
         this.p = params;
         this.edges = edges;
         this.rng = new Random(params.seed * 8191L + 101);
+        this.stormDown = new boolean[params.numEdges];
     }
 
     /** Validates the arguments before SimEntity registers the entity with CloudSim. */
@@ -85,6 +89,7 @@ public class OutageController extends SimEntity {
             if (!(params.cohortFraction > 0 && params.cohortFraction <= 1))
                 throw new IllegalArgumentException("cohortFraction must be in (0, 1], got " + params.cohortFraction);
             requireCv(params.downSpellDist, params.cohortCV, "cohortCV");
+            if (!params.cohortStormsOnly) requireNonNegative(params.cohortScatterDelay, "cohortScatterDelay");
         }
 
         if (edges.isEmpty()) throw new IllegalArgumentException("edges must not be empty");
@@ -140,7 +145,12 @@ public class OutageController extends SimEntity {
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_UP);
             // COHORT + cohortStormsOnly: a reconnected storm member stays up until a later storm.
             if (p.outageMode == SimParams.OutageMode.SCATTERED || !p.cohortStormsOnly) {
-                send(getId(), drawUpSpell(move.edgeIndex()), BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
+                boolean wasStorm = stormDown[move.edgeIndex()];
+                stormDown[move.edgeIndex()] = false;
+                double upWait = (p.outageMode == SimParams.OutageMode.COHORT && wasStorm)
+                        ? p.cohortScatterDelay            // calm spell after a storm, then scattered resumes
+                        : drawUpSpell(move.edgeIndex());  // normal per-edge scattered clock
+                send(getId(), upWait, BackfillEvents.OUTAGE_MOVE, new OutageMove(move.edgeIndex(), true));
             }
         }
     }
@@ -160,6 +170,7 @@ public class OutageController extends SimEntity {
         for (int k = 0; k < size; k++) {
             int idx = candidates.get(k);
             EdgeServerDevice dev = edges.get(idx);
+            stormDown[idx] = true;
             send(dev.getId(), CloudSim.getMinTimeBetweenEvents(), BackfillEvents.LINK_DOWN);
             // Same mean, small cv => the storm's members reconnect within a short window.
             send(getId(), drawDownSpellCohort(), BackfillEvents.OUTAGE_MOVE, new OutageMove(idx, false));

@@ -22,6 +22,11 @@ function readConfig() {
     cfg.imbalance = el("cfgImbalance").value;
     if (cfg.imbalance === "ZIPF") cfg.zipfAlpha = parseFloat(el("cfgZipf").value) || 1.0;
     cfg.outageMode = el("cfgOutage").value;
+    if (cfg.outageMode === "COHORT") {
+        cfg.cohortStormsOnly = el("cfgCohortOnly").value === "true";
+        const d = parseFloat(el("cfgScatterDelay").value);
+        cfg.cohortScatterDelay = isFinite(d) && d >= 0 ? d : 90;
+    }
     cfg.simDuration = parseFloat(el("cfgDuration").value);
     cfg.seed = parseInt(el("cfgSeed").value, 10);
     return cfg;
@@ -377,8 +382,11 @@ function renderCompare(rows, cfg) {
         ctx.fillText(m.label, lx + 13, 16);
         lx += tw + 30;
     });
+    const outageLine = cfg.outageMode === "COHORT"
+        ? (cfg.cohortStormsOnly ? "COHORT (storms-only)" : "COHORT (storms + scattered, +" + cfg.cohortScatterDelay + "s)")
+        : cfg.outageMode;
     const cfgLine = "scenario: N=" + cfg.numEdges + ", ρ=" + cfg.loadFactor + ", " + cfg.imbalance +
-        ", outages=" + cfg.outageMode + ", seed=" + cfg.seed + ", duration=" + cfg.simDuration + "s";
+        ", outages=" + outageLine + ", seed=" + cfg.seed + ", duration=" + cfg.simDuration + "s";
     el("compareCfg").textContent = cfgLine;
 }
 
@@ -420,6 +428,11 @@ function exportTickCsv() {
 }
 
 /* ---------------- wiring ---------------- */
+function syncOutageRows() {
+    const cohort = el("cfgOutage").value === "COHORT";
+    el("cohortRow").style.display = cohort ? "" : "none";
+    el("scatterRow").style.display = (cohort && el("cfgCohortOnly").value === "false") ? "" : "none";
+}
 function wire() {
     el("btnPlay").onclick = () => { playing = !playing; el("btnPlay").textContent = playing ? "⏸ Pause" : "▶ Play"; };
     el("btnStep").onclick = () => { if (engine) { engine.tick(); drawAll(); } };
@@ -431,7 +444,9 @@ function wire() {
         el("cfgZipf").style.display = el("cfgImbalance").value === "ZIPF" ? "inline-block" : "none";
         resetSim();
     };
-    for (const id of ["cfgN", "cfgRho", "cfgOutage", "cfgDuration", "cfgPolicy", "cfgSeed", "cfgZipf"]) {
+    el("cfgOutage").addEventListener("change", syncOutageRows);
+    el("cfgCohortOnly").addEventListener("change", syncOutageRows);
+    for (const id of ["cfgN", "cfgRho", "cfgOutage", "cfgCohortOnly", "cfgScatterDelay", "cfgDuration", "cfgPolicy", "cfgSeed", "cfgZipf"]) {
         el(id).addEventListener("change", resetSim);
     }
     // policy description under selection
@@ -441,6 +456,7 @@ function wire() {
     };
     el("cfgPolicy").addEventListener("change", upd);
     upd();
+    syncOutageRows();
     resetSim();
 }
 window.addEventListener("DOMContentLoaded", wire);

@@ -66,6 +66,8 @@ function defaultConfig() {
         downMean: 20.0, downCV: 0.8, // scattered: lognormal down-spells, fleet mean
         outageDownSpread: 0.3,       // linear spread of per-edge down-means (0 = uniform)
         cohortPeriod: 120.0, cohortFraction: 0.5, cohortCV: 0.15,
+        cohortStormsOnly: true,      // COHORT: true = storms only; false = storms + post-storm scattered
+        cohortScatterDelay: 90.0,    // COHORT + !cohortStormsOnly: wait before a member resumes scattering (s)
         rateLimitFactor: 0.5,        // rate-limit: R = f * C (backfill rate)
         backfillQuotaFactor: 0.05,   // new-first: quota q = f * C
         simDuration: 300.0,
@@ -320,40 +322,48 @@ class Engine {
     /* -- piece 1: connectivity ------------------------------------------------ */
     applyLinkEvents(now) {
         const cfg = this.cfg;
-        if (cfg.outageMode === "SCATTERED") {
-            for (const e of this.edges) {
-                while (e.nextMove && e.nextMove.t <= now) {
-                    this.setLink(e, e.nextMove.toDown, now);
-                    const nextIsDown = !e.nextMove.toDown;
-                    const dur = nextIsDown
-                        ? this.outageRng.lognormalDraw(downMeanOfEdge(cfg, e.index), Math.max(0.01, cfg.downCV))
-                        : this.outageRng.expDraw(1 / Math.max(1e-9, dropRateOfEdge(cfg, e.index)));
-                    e.nextMove = { t: now + dur, toDown: nextIsDown };
-                }
+        // (a) per-edge scattered clocks: every edge in SCATTERED mode, and post-storm members in
+        //     COHORT mode when cohortStormsOnly = false.
+        for (const e of this.edges) {
+            while (e.nextMove && e.nextMove.t <= now) {
+                this.setLink(e, e.nextMove.toDown, now);
+                const nextIsDown = !e.nextMove.toDown;
+                const dur = nextIsDown
+                    ? this.outageRng.lognormalDraw(downMeanOfEdge(cfg, e.index), Math.max(0.01, cfg.downCV))
+                    : this.outageRng.expDraw(1 / Math.max(1e-9, dropRateOfEdge(cfg, e.index)));
+                e.nextMove = { t: now + dur, toDown: nextIsDown };
             }
-        } else if (this.nextStorm !== undefined && this.nextStorm <= now) {
-            const candidates = this.edges.filter(e => e.up).map(e => e.index);
-            // deterministic shuffle
-            for (let k = candidates.length - 1; k > 0; k--) {
-                const j = Math.floor(this.outageRng.random() * (k + 1));
-                [candidates[k], candidates[j]] = [candidates[j], candidates[k]];
-            }
-            const m = Math.max(1, Math.round(cfg.cohortFraction * cfg.numEdges));
-            const size = Math.min(m, candidates.length);
-            for (let k = 0; k < size; k++) {
-                const e = this.edges[candidates[k]];
-                this.setLink(e, true, now);
-                const dur = this.outageRng.lognormalDraw(cfg.downMean, Math.max(0.01, cfg.cohortCV));
-                e.restorePlanned = now + dur;
-            }
-            this.nextStorm += cfg.cohortPeriod;
         }
-        // cohort restorations
         if (cfg.outageMode === "COHORT") {
+            // (b) storms: a random cohortFraction of the connected edges drops together
+            if (this.nextStorm !== undefined && this.nextStorm <= now) {
+                const candidates = this.edges.filter(e => e.up).map(e => e.index);
+                // deterministic shuffle
+                for (let k = candidates.length - 1; k > 0; k--) {
+                    const j = Math.floor(this.outageRng.random() * (k + 1));
+                    [candidates[k], candidates[j]] = [candidates[j], candidates[k]];
+                }
+                const m = Math.max(1, Math.round(cfg.cohortFraction * cfg.numEdges));
+                const size = Math.min(m, candidates.length);
+                for (let k = 0; k < size; k++) {
+                    const e = this.edges[candidates[k]];
+                    this.setLink(e, true, now);
+                    const dur = this.outageRng.lognormalDraw(cfg.downMean, Math.max(0.01, cfg.cohortCV));
+                    e.restorePlanned = now + dur;
+                    e.nextMove = null;   // a storm overrides any pending post-storm scattered clock
+                }
+                this.nextStorm += cfg.cohortPeriod;
+            }
+            // (c) restorations. cohortStormsOnly (default) = a member stays up until a later storm.
+            //     cohortStormsOnly = false = after cohortScatterDelay seconds it resumes its own
+            //     per-edge SCATTERED clock (storms + scattered mix).
             for (const e of this.edges) {
                 if (!e.up && e.restorePlanned !== undefined && e.restorePlanned <= now) {
                     e.restorePlanned = undefined;
                     this.setLink(e, false, now);
+                    if (!cfg.cohortStormsOnly) {
+                        e.nextMove = { t: now + Math.max(0, cfg.cohortScatterDelay || 0), toDown: true };
+                    }
                 }
             }
         }

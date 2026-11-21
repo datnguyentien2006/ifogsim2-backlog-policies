@@ -84,12 +84,17 @@ public class SimParams {
      *  {@link #downCV}, storm members mean {@link #downMean} with cv {@link #cohortCV}.
      *  LOGNORMAL = the published model. */
     public SpellDistribution downSpellDist = SpellDistribution.LOGNORMAL;
-    /** COHORT mode: true = edges drop only in storms (docs/MODEL.md §5; the web engine does this).
+    /** COHORT mode: true = edges drop only in storms (docs/MODEL.md §5; the web engine default).
      *  The storm regime is then exactly "many edges reconnect together", with one outage chain per
-     *  edge. false (the older published model) = a storm member, once reconnected, also drops on its
-     *  own SCATTERED clock, so a later storm that hits it while that clock is pending starts a
-     *  second chain for the same edge (two parallel chains, redundant link moves). */
+     *  edge. false = a reconnected storm member also resumes its own SCATTERED clock after
+     *  {@link #cohortScatterDelay} seconds, mixing storms with scattered drops. */
     public boolean cohortStormsOnly = true;
+    /** COHORT + {@link #cohortStormsOnly} = false: seconds a reconnected storm member waits before
+     *  it resumes its own SCATTERED drop clock. The wait models the calm spell that usually follows
+     *  a storm; after it the edge drops and reconnects on its per-edge scattered schedule
+     *  ({@link #dropRateOfEdge}/{@link #downMeanOfEdge}, cv {@link #downCV}). Ignored when
+     *  {@link #cohortStormsOnly} = true (storms-only regime). */
+    public double cohortScatterDelay = 90.0;
 
     // ---------------- policy knobs (equal inputs for every policy) ----------------
     /** Rate-limit policy: fixed backfill rate R = rateLimitFactor * centerCapacity (units/s),
@@ -198,6 +203,7 @@ public class SimParams {
         p.cohortPeriod = cohortPeriod; p.cohortFraction = cohortFraction; p.cohortCV = cohortCV;
         p.upSpellDist = upSpellDist; p.upCV = upCV; p.downSpellDist = downSpellDist;
         p.cohortStormsOnly = cohortStormsOnly;
+        p.cohortScatterDelay = cohortScatterDelay;
         p.rateLimitFactor = rateLimitFactor; p.backfillQuotaFactor = backfillQuotaFactor;
         p.tupleNwLength = tupleNwLength; p.tupleCpuLength = tupleCpuLength;
         p.uplinkBandwidth = uplinkBandwidth; p.downlinkBandwidth = downlinkBandwidth;
