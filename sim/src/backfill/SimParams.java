@@ -85,10 +85,11 @@ public class SimParams {
      *  LOGNORMAL = the published model. */
     public SpellDistribution downSpellDist = SpellDistribution.LOGNORMAL;
     /** COHORT mode: true = edges drop only in storms (docs/MODEL.md §5; the web engine does this).
-     *  false (default, reproduces the published results) = a storm member, once reconnected, also
-     *  drops on its own SCATTERED clock, and a later storm that hits it while that clock is
-     *  pending starts a second clock for the same edge. */
-    public boolean cohortStormsOnly = false;
+     *  The storm regime is then exactly "many edges reconnect together", with one outage chain per
+     *  edge. false (the older published model) = a storm member, once reconnected, also drops on its
+     *  own SCATTERED clock, so a later storm that hits it while that clock is pending starts a
+     *  second chain for the same edge (two parallel chains, redundant link moves). */
+    public boolean cohortStormsOnly = true;
 
     // ---------------- policy knobs (equal inputs for every policy) ----------------
     /** Rate-limit policy: fixed backfill rate R = rateLimitFactor * centerCapacity (units/s),

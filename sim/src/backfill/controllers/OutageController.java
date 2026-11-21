@@ -31,9 +31,11 @@ import backfill.util.SpellDistribution;
  *       member's down-spell is log-normal with the same mean but a small cv ({@code cohortCV}),
  *       so several edges restore their links within a short window of each other — a realistic
  *       simultaneous-reconnection burst that piles backlog onto the scheduler at once. By default
- *       (the published model) a member that has reconnected then also drops on its own SCATTERED
- *       clock, and a storm that hits an edge whose clock is still pending starts a second clock
- *       for it; {@link SimParams#cohortStormsOnly} keeps the drops to the storms.</li>
+ *       ({@link SimParams#cohortStormsOnly} = true) a reconnected member stays up until a later
+ *       storm picks it, so the regime is exactly storms-only, one chain per edge. Setting the flag
+ *       to false restores the older behaviour where a reconnected member also drops on its own
+ *       SCATTERED clock, and a storm that hits an edge whose clock is still pending starts a
+ *       second clock for it.</li>
  * </ul>
  *
  * <p>Exponential and log-normal are the defaults: {@link SimParams#upSpellDist} and

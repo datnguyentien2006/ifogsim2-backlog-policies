@@ -144,7 +144,7 @@ drops. The backlog number at rejoin is what the flood is about to fight over.
 | `SchedulingPolicy.drainOldestGlobal / drainEdgeMerged` | literally re-implemented the same helpers |
 | the four `*Policy.java` classes | `Policies.*.make()` — same reservation/quota math |
 | `SchedulerEntity.doTick()` pipeline | `Engine.tick()` — link events → generation → flush arrivals → grants → snapshot |
-| `OutageController` (SCATTERED/COHORT state machine) | same spell draws: exponential up-spells, lognormal down-spells (cv per mode) |
+| `OutageController` (SCATTERED/COHORT state machine) | same spell draws: exponential up-spells, lognormal down-spells (cv per mode); `COHORT` is **storms-only** on both sides (`cohortStormsOnly = true`). The Java engine can additionally switch either spell to another `SpellDistribution` (uniform / deterministic), which the web mirror does not implement |
 | `UnitRegistry` summary columns | `Engine.summary()` — same column names |
 
 Parity is verified by the two node tests (`web/test/…`): they assert that all four policies

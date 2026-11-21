@@ -55,11 +55,14 @@ Model details: [`MODEL.md`](MODEL.md). Extension guide: [`ADD_POLICY.md`](ADD_PO
 * Scenario grid = base (`N=6, ρ=0.7, EVEN, SCATTERED outages`) plus one-factor sweeps
   `N ∈ {4,10,16}`, `ρ ∈ {0.4,0.9,1.1}`, backlog imbalance `ZIPF` / `DOMINANT`, and a
   **storm** regime (`COHORT` outages: every 120 s half of the currently connected edges drop
-  simultaneously and reconnect within a few-seconds window — ≈39–43 link-loss events per
-  600 s run, and in the base regime each reconnect brings a backlog that must be drained).
+  simultaneously and reconnect within a few-seconds window — 15 link-loss events per 600 s run
+  (five storms × three edges), each reconnect bringing a backlog that must be drained. The
+  storm regime is **storms-only** (`cohortStormsOnly = true`): a reconnected edge stays up until
+  a later storm picks it, so the regime is exactly "many edges reconnect together", one outage
+  chain per edge, and matches the web mirror).
   In the `SCATTERED` regime every edge has its own drop probability and mean outage duration:
   both ramp linearly around the fleet means (0.01/s, 20 s) — edge 0 drops most and recovers
-  slowest, edge N−1 least and fastest (`outageRateSpread = 0.5`, `outageDownSpread = 0.3`),
+  fastest, edge N−1 least and slowest (`outageRateSpread = 0.5`, `outageDownSpread = 0.3`),
   so heterogeneous link quality is part of the workload.
 * 5 seeds per (scenario, policy) → 200 runs; every metric below is the mean over seeds.
 * Measured dimensions (the three requested): **fresh-data latency**, **backfill latency**,
@@ -80,7 +83,10 @@ SCATTERED outage model per-edge (every edge owns its own drop probability and me
 duration, §4), which is what the current data reflects. All 200 runs were regenerated after
 each change; the defects changed only RR's quantitative results, the fairness metric now
 measures real delivery for every policy, and the per-edge outages add realistic link
-heterogeneity without changing any framework invariant.*
+heterogeneity without changing any framework invariant. A later revision made the storm
+regime **storms-only** (`cohortStormsOnly = true`, §4), removing a duplicated outage chain
+that a reconnected storm member could start on its own scattered clock; only the 20 storm runs
+were regenerated, every other scenario's numbers are unchanged.*
 
 | metric | FIFO | Round-robin | Rate-limit | New-first |
 |---|---|---|---|---|
@@ -166,15 +172,17 @@ though RR remains consistently a few percent behind the unit-level allocators an
 **Outage regime — scattered vs. storm (COHORT).** In the base scattered regime a reconnect
 typically happens while other edges are idle, so drains are short. In the storm regime,
 ~50 % of the fleet reconnects within a window of seconds: the scheduler sees several huge
-backlogs at once. All three serving policies still complete every backlog-carrying
-reconnection inside the horizon (≈31–33 drains counted per run), and round-robin's drains
-per spell are the quickest (drain mean 9.0 s vs FIFO 10.5 s; drain max 27.3 s vs 27.1 s)
-because several edges drain *concurrently* at partial share instead of one edge
-monopolizing the budget. The cost shows up in the delay dimension instead: RR's backfill
-mean is 16.0 s vs FIFO 13.6 s. FIFO and rate-limit perform similarly (13.6 / 16.9 s;
-rate-limit +24 % as the price of its reservation), and newfirst again starves the backlog
-(172 s mean, 68.6k peak — in a storm the 6/tick quota can only chew a fraction of what
-arrives).
+backlogs at once. Because the storm is storms-only (no scattered drops layered on top), all
+three serving policies drain the storm backlog completely inside the horizon (15 drains per
+run, `leftBack = 0`), and round-robin's drains per spell are the quickest (drain mean 14.7 s
+vs FIFO 17.4 s; drain max 21.2 s vs 23.4 s) because several edges drain *concurrently* at
+partial share instead of one edge monopolizing the budget. In this fully-drained regime the
+cost shows up in the delay dimension instead: **FIFO now has the lowest backfill latency**
+(12.1 s) — with no standing overload, "any unit, first-come" clears the burst fastest — while
+RR (14.1 s) and rate-limit (14.9 s, +23 % as the price of its reservation) trade a little
+backlog latency for better fresh-data latency (0.38 / 0.32 s vs FIFO 0.56 s). New-first again
+starves the backlog (102 s mean, 12.6k peak — it delivers only 74 % of the generated backfill
+before cutoff).
 
 ### 5.3 Fairness (Jain index on per-edge delivered/generated share of backfill)
 
@@ -186,17 +194,18 @@ are excluded, starved edges count with ratio 0).*
 | Jain index (mean over seeds) | min across scenarios | max across scenarios |
 |---|---|---|
 | FIFO / RR / rate-limit | 0.949 | 1.00 |
-| new-first | 0.698 (storm) | 0.901 (ρ=0.4) |
+| new-first | 0.699 (N16) | 0.901 (ρ=0.4) |
 
-Two findings. First, **the index discriminates newfirst very clearly**: under storms its
-per-edge completion ratios diverge (0.698 — some edges receive almost no backfill all run),
-and it degrades under overload (0.71) and ρ=0.9 (0.75), tightening only under light load
-(0.90). Throughput starvation is thus visible in the fairness dimension, not only in the
-delay dimension of §5.1/5.2. Second, **the three serving policies are nearly flat at
-0.95–1.00 in every regime**: when an edge's backlog is not cut off by the run's tail, the
-policy eventually delivers *all* of its accumulated data, so completion ratios equalize even
-though the *time* profile differs strongly (§5.1). For backfill scheduling, delay fairness —
-not throughput fairness — is the discriminating dimension among serving policies.
+Two findings. First, **the index discriminates newfirst very clearly**: its minimum is at
+N16 (0.699 — some edges receive almost no backfill all run), and it degrades under overload
+(0.71), N10 (0.74) and ρ=0.9 (0.75), tightening under light load (0.90) and in the storm
+regime (0.94, where the smaller fleet-wide backlog drains further). Throughput starvation is
+thus visible in the fairness dimension, not only in the delay dimension of §5.1/5.2. Second,
+**the three serving policies are nearly flat at 0.95–1.00 in every regime**: when an edge's
+backlog is not cut off by the run's tail, the policy eventually delivers *all* of its
+accumulated data, so completion ratios equalize even though the *time* profile differs
+strongly (§5.1). For backfill scheduling, delay fairness — not throughput fairness — is the
+discriminating dimension among serving policies.
 
 ### 5.4 Figures
 
@@ -211,10 +220,15 @@ not throughput fairness — is the discriminating dimension among serving polici
 1. **There is no universally best policy; the right choice tracks the bottleneck regime.**
    * Balanced load, outages scattered — **FIFO** has the lowest backlog latency; **RR and
      rate-limit both halve fresh-data latency** for a +13–16 % backlog-delay premium.
-   * Overload / storms / saturation — **rate-limit** dominates: lowest backfill latency
+   * Overload / saturation (ρ ≥ 0.9) — **rate-limit** dominates: lowest backfill latency
      *and* highest backfill throughput, with bounded center headroom; **round-robin is
      the wrong choice here** (stretched per-edge turns → 108 s mean drains) even though
      its own budget use is now correct.
+   * Simultaneous reconnection storms (`COHORT`) — with the storms-only model every serving
+     policy drains the burst completely (`leftBack = 0`), so **FIFO has the lowest backlog
+     latency** (12.1 s) and **rate-limit/RR trade ~2 s of backlog latency for ~1.8× better
+     fresh-data latency** (0.32 / 0.38 s vs 0.56 s). With no standing overload this regime
+     rewards the simplest policy, not the fixed-rate reservation.
    * Fresh-data latency is mission-critical — **new-first** gives a ~12× improvement at a
      heavy backlog price; raise q above 0.05·C to make it viable for periodic storms.
    * Heterogeneous fleet (ZIPF/dominant generation) — with correct budget reuse, round-robin
@@ -232,12 +246,12 @@ not throughput fairness — is the discriminating dimension among serving polici
    knob: below the spare capacity it is invisible; at/beyond saturation it becomes the only
    policy that simultaneously protects fresh data and maximizes backlog throughput.
 4. **Quota-based starvation is real — in delay *and* in fairness.** With q = 5 % of C,
-   new-first falls well short of draining the generated backfill inside the horizon in every
-   stressful regime (31 % storm, 26 % at ρ=1.1, 31 % at ρ=0.9, and 42–46 % under the N sweeps);
-   under milder loads it recovers more (41–42 % under ZIPF/DOMINANT, 64 % at ρ=0.4) simply because
-   the outages are lighter — it is the only policy whose per-edge completion ratios visibly
-   diverge (Jain 0.70–0.90, §5.3) — quotas must scale with the expected outage-induced backlog
-   (e.g. q ≥ backlog/(C·drain-window)).
+   new-first falls well short of draining the generated backfill inside the horizon whenever the
+   center is loaded (26 % at ρ=1.1, 31 % at ρ=0.9, and 42–46 % under the N sweeps); under milder
+   loads it recovers more (41–42 % under ZIPF/DOMINANT, 64 % at ρ=0.4), and in the storms-only
+   regime it reaches 74 % because the outage load is lightest there — it is the only policy whose
+   per-edge completion ratios visibly diverge (Jain 0.70–0.90, §5.3) — quotas must scale with the
+   expected outage-induced backlog (e.g. q ≥ backlog/(C·drain-window)).
 
 ## 7. Web visual demonstration
 

@@ -7,6 +7,10 @@ technically below. Verdicts: **Confirmed** — real bug, fixed; **Confirmed (onl
 — real observation, addressed by docs or tooling; **Rebutted (partially)** — mechanism is
 real but the reviewer's stated magnitude is wrong.
 
+*Numbers quoted below are the measurements taken during that review round; later model
+revisions superseded some of them. The current canonical figures are in `REPORT.md` §5.3 and
+`analysis/tables.md`.*
+
 ## Group A — claimed "real bugs"
 
 ### #1 `jainBackfill ≡ 1.0` (dead metric) — CONFIRMED, fixed
